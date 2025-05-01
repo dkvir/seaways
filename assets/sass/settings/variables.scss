@@ -1,0 +1,40 @@
+@use "sass:math";
+$default-window-width: 1920 !default;
+$default-window-height: 1080 !default;
+
+$default-timing-speed: 0.2s;
+$default-timing-func: ease-in-out;
+
+$square-size: 20px;
+
+$sizes: "xxs", "xs", "s", "m", "l", "xl", "xxl", "3xl", "4xl", "5xl";
+
+$colors: (
+  "black": #000,
+  "white": #fff,
+  "transparent": transparent,
+  "firefly": #182833,
+  "red": #ff4848,
+);
+
+$fonts: (
+  "monarch": "Monarch",
+  "helvetica": "HelveticaNeueThin13",
+  "inter-blackitalic": "Inter-BlackItalic",
+  "inter-black": "Inter-Black",
+  "inter-bold": "Inter-Bold",
+  "inter-bolditalic": "Inter-BoldItalic",
+  "inter-extrabold": "Inter-ExtraBold",
+  "inter-extrabolditalic": "Inter-ExtraBoldItalic",
+  "inter-extralight": "Inter-ExtraLight",
+  "inter-extralightitalic": "Inter-ExtraLightItalic",
+  "inter-italic": "Inter-Italic",
+  "inter-light": "Inter-Light",
+  "inter-lightitalic": "Inter-LightItalic",
+  "inter-medium": "Inter-Medium",
+  "inter-mediumitalic": "Inter-MediumItalic",
+  "inter-regular": "Inter-Regular",
+  "inter-semibold": "Inter-SemiBold",
+  "inter-thin": "Inter-Thin",
+  "inter-thinitalic": "Inter-ThinItalic",
+);
