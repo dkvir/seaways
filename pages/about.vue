@@ -170,16 +170,23 @@ function createModelPhysics(position) {
   const hullHeight = 1;
   const hullLength = 200;
 
+  // Y-offset to move the physics body up
+  const physicsYOffset = -5; // Adjust this value as needed
+
   // Main hull body - slightly heavier at the bottom for stability
   modelBody = new CANNON.Body({
     mass: 50,
-    position: new CANNON.Vec3(position.x, position.y, position.z),
+    // Apply Y-offset to raise the physics body
+    position: new CANNON.Vec3(
+      position.x,
+      position.y + physicsYOffset,
+      position.z
+    ),
     material: new CANNON.Material({
       friction: 0.3,
       restitution: 0.3,
     }),
   });
-
   // FIX: Align physics body with properly oriented model
   // For boat model that uses Y-up coordinate system, we create our physics shape correctly
 
