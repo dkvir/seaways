@@ -20,7 +20,7 @@ let world, cannonDebugRenderer;
 
 const waves = [
   {
-    direction: 267,
+    direction: 0,
     steepness: 0.1,
     wavelength: 57.2,
   },
