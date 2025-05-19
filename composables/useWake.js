@@ -10,16 +10,22 @@ export const useWake = class WakeEffect {
     this.wakeWidth = 70;
     this.wakeLength = 190;
 
-    this.heightOffset = 0.1;
+    // Increase this value to make wake more visible above water
+    this.heightOffset = 0.5;
 
     this.wakeGeometry = null;
-    this.wakeResolution = { width: 20, length: 40 };
+    // Increase resolution for smoother wake effect
+    this.wakeResolution = { width: 32, length: 64 };
     this.time = 0;
-    this.debug = true; // Enable debug mode
+    this.debug = false; // Set to true for debugging
+
+    // Material properties for wake effect - solid white
+    this.wakeColor = 0xffffff;
+    this.fadeDistance = 40; // Distance from boat where wake starts to fade
   }
 
   init() {
-    // Create wake plane geometry with higher resolution for better wave effects
+    // Create wake plane geometry with higher resolution
     this.wakeGeometry = new THREE.PlaneGeometry(
       this.wakeWidth,
       this.wakeLength,
@@ -27,17 +33,15 @@ export const useWake = class WakeEffect {
       this.wakeResolution.length
     );
 
-    // Create material for wake effect
-    const material = new THREE.MeshBasicMaterial({
-      color: 0xffffff,
-      transparent: true,
-      opacity: 1,
+    // Create custom shader material for wake effect with solid white color
+    const wakeMaterial = new THREE.MeshBasicMaterial({
+      color: this.wakeColor,
       side: THREE.DoubleSide,
       depthWrite: false,
     });
 
-    // Create wake plane mesh
-    this.wakePlane = new THREE.Mesh(this.wakeGeometry, material);
+    // Create wake plane mesh with the custom material
+    this.wakePlane = new THREE.Mesh(this.wakeGeometry, wakeMaterial);
 
     // Rotate plane to be horizontal
     this.wakePlane.rotation.x = -Math.PI / 2;
@@ -50,12 +54,19 @@ export const useWake = class WakeEffect {
 
     // Add debug helpers if in debug mode
     if (this.debug) {
-      // Add a visible axis helper to mark the center
       const axisHelper = new THREE.AxesHelper(10);
       this.wakePlane.add(axisHelper);
-    }
 
-    console.log("Wake plane initialized:", this.wakePlane);
+      // Add wireframe to visualize geometry
+      const wireframe = new THREE.WireframeGeometry(this.wakeGeometry);
+      const line = new THREE.LineSegments(wireframe);
+      line.material.color.set(0xff0000);
+      line.material.opacity = 0.25;
+      line.material.transparent = true;
+      this.wakePlane.add(line);
+
+      console.log("Wake plane initialized with debug mode:", this.wakePlane);
+    }
   }
 
   update(bodyPosition, bodyQuaternion, time) {
@@ -66,11 +77,26 @@ export const useWake = class WakeEffect {
 
     this.time = time;
 
-    // Set position to match the boat position with a small height offset
+    // No need to update shader uniforms - using basic material now
+
+    // Position wake behind the boat based on its orientation
+    const boatDirection = new THREE.Vector3(0, 0, -1); // Assuming boat forward is -Z
+    boatDirection.applyQuaternion(
+      new THREE.Quaternion(
+        bodyQuaternion.x,
+        bodyQuaternion.y,
+        bodyQuaternion.z,
+        bodyQuaternion.w
+      )
+    );
+
+    // Position wake slightly behind the boat
+    const wakeOffset = boatDirection.clone().multiplyScalar(-5); // Offset wake behind boat
+
     this.wakePlane.position.set(
-      bodyPosition.x,
-      bodyPosition.y + this.heightOffset,
-      bodyPosition.z
+      bodyPosition.x + wakeOffset.x,
+      bodyPosition.y + this.heightOffset, // Keep height offset constant
+      bodyPosition.z + wakeOffset.z
     );
 
     // Extract and apply only the yaw rotation
@@ -87,10 +113,10 @@ export const useWake = class WakeEffect {
     // Keep plane horizontal but rotate based on boat's yaw
     this.wakePlane.rotation.set(-Math.PI / 2, 0, euler.y);
 
-    // Always apply wave distortion to match water waves
+    // Apply wave distortion to match water waves
     this.applyGerstnerWaveDistortion(time);
 
-    // Log position periodically to verify the plane is where we expect
+    // Log position periodically for debugging
     if (this.debug && Math.floor(time * 10) % 100 === 0) {
       console.log(
         "Wake plane position:",
@@ -101,11 +127,17 @@ export const useWake = class WakeEffect {
     }
   }
 
-  // New method to apply Gerstner waves identical to the water shader
+  // Apply Gerstner waves to match the water shader but keep wake above water
   applyGerstnerWaveDistortion(time) {
     if (!this.wakeGeometry || !this.wakePlane) return;
 
     const positions = this.wakeGeometry.attributes.position;
+    const wakeWorldPosition = new THREE.Vector3();
+    this.wakePlane.getWorldPosition(wakeWorldPosition);
+
+    // Sample the water wave heights at several key points to find lowest and highest points
+    let minWaveHeight = Infinity;
+    let maxWaveHeight = -Infinity;
 
     // For each vertex in the wake geometry
     for (let i = 0; i < positions.count; i++) {
@@ -142,89 +174,32 @@ export const useWake = class WakeEffect {
         displacement.z += d.y * (a * Math.cos(f));
       });
 
-      // Apply displacement to vertex
-      const offsetY = displacement.y; // Height displacement
+      // Keep track of lowest and highest wave points
+      minWaveHeight = Math.min(minWaveHeight, displacement.y);
+      maxWaveHeight = Math.max(maxWaveHeight, displacement.y);
 
-      // Update vertex position - only change the z-coordinate (which is height in local space)
-      positions.setZ(i, offsetY);
+      // Apply wave height plus a significant offset to ensure it stays above water
+      // Increase this value if wake is still going below water
+      positions.setZ(i, displacement.y + 0.3);
+    }
+
+    // Calculate wave height range
+    const waveHeightRange = maxWaveHeight - minWaveHeight;
+
+    // If debug is enabled, log the wave height range occasionally
+    if (this.debug && Math.floor(time * 10) % 100 === 0) {
+      console.log(
+        "Wave height range:",
+        waveHeightRange,
+        "Min:",
+        minWaveHeight,
+        "Max:",
+        maxWaveHeight
+      );
     }
 
     // Update geometry
     positions.needsUpdate = true;
     this.wakeGeometry.computeVertexNormals();
-  }
-
-  // This method is replaced by applyGerstnerWaveDistortion
-  applyWaveDistortion() {
-    // This is now deprecated - keeping for reference
-    if (!this.wakeGeometry || !this.wakePlane) return;
-
-    const positions = this.wakeGeometry.attributes.position;
-    const localOrigin = new THREE.Vector3(0, 0, 0);
-    const worldOrigin = this.wakePlane.localToWorld(localOrigin.clone());
-
-    // Apply wave distortion to each vertex
-    for (let i = 0; i < positions.count; i++) {
-      const x = positions.getX(i);
-      const z = positions.getZ(i);
-
-      // Convert local vertex coordinates to world coordinates
-      const localVertex = new THREE.Vector3(x, 0, z);
-      const worldVertex = this.wakePlane.localToWorld(localVertex.clone());
-
-      // Get wave height at this world position
-      const waveInfo = this.getWaveInfo(
-        worldVertex.x,
-        worldVertex.z,
-        this.time
-      );
-
-      // Calculate relative height to the origin to maintain wake shape
-      const relativeHeight = waveInfo.position.y - worldOrigin.y;
-
-      // Apply the wave height to the vertex Y position
-      positions.setY(i, relativeHeight);
-    }
-
-    // Update the geometry
-    positions.needsUpdate = true;
-    this.wakeGeometry.computeVertexNormals();
-  }
-
-  getWaveInfo(x, z, time) {
-    const pos = new THREE.Vector3();
-    const tangent = new THREE.Vector3(1, 0, 0);
-    const binormal = new THREE.Vector3(0, 0, 1);
-
-    Object.keys(this.waves).forEach((wave) => {
-      const w = this.waves[wave];
-      const k = (Math.PI * 2) / w.wavelength;
-      const c = Math.sqrt(9.8 / k);
-      const d = new THREE.Vector2(
-        Math.sin((w.direction * Math.PI) / 180),
-        -Math.cos((w.direction * Math.PI) / 180)
-      );
-      const f = k * (d.dot(new THREE.Vector2(x, z)) - c * time);
-      const a = w.steepness / k;
-
-      pos.x += d.y * (a * Math.cos(f));
-      pos.y += a * Math.sin(f);
-      pos.z += d.x * (a * Math.cos(f));
-
-      tangent.x += -d.x * d.x * (w.steepness * Math.sin(f));
-      tangent.y += d.x * (w.steepness * Math.cos(f));
-      tangent.z += -d.x * d.y * (w.steepness * Math.sin(f));
-
-      binormal.x += -d.x * d.y * (w.steepness * Math.sin(f));
-      binormal.y += d.y * (w.steepness * Math.cos(f));
-      binormal.z += -d.y * d.y * (w.steepness * Math.sin(f));
-    });
-
-    const normal = binormal.cross(tangent).normalize();
-
-    return {
-      position: pos,
-      normal: normal,
-    };
   }
 };
