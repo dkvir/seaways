@@ -17,7 +17,6 @@ let light,
   lightShift = new THREE.Vector3(0, 1, 0);
 let clock, delta;
 let world, cannonDebugRenderer;
-let wakeClass, wakeEffect;
 
 const waves = [
   {
@@ -103,8 +102,6 @@ function init() {
     new THREE.Vector3(0, 0, 0)
   );
 
-  wakeEffect = new useWake(scene, modelClass.model, waterClass.getWater());
-
   const sky = new useSun(scene, renderer, waterClass.getWater());
   sky.updateSun();
 
@@ -162,11 +159,6 @@ function animate() {
 
     modelClass.applyBuoyancyForce();
     modelClass.updateMixer(delta);
-
-    if (wakeEffect) {
-      console.log("wakeEffect", wakeEffect);
-      wakeEffect.update();
-    }
 
     if (cannonDebugRenderer) {
       cannonDebugRenderer.update();
