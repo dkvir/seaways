@@ -103,7 +103,12 @@ function init() {
     new THREE.Vector3(0, 0, 0)
   );
 
-  wakeEffect = new useWake(scene, modelClass.model, waterClass.getWater());
+  wakeEffect = new useWake(
+    scene,
+    modelClass.model,
+    waterClass.getWater(),
+    waves
+  );
   wakeEffect.init();
 
   const sky = new useSun(scene, renderer, waterClass.getWater());
@@ -164,10 +169,12 @@ function animate() {
     modelClass.applyBuoyancyForce();
     modelClass.updateMixer(delta);
 
+    const waterTime = waterClass.getWater().material.uniforms["time"].value;
     if (wakeEffect) {
       wakeEffect.update(
         modelClass.getModelBody().position,
-        modelClass.getModelBody().quaternion
+        modelClass.getModelBody().quaternion,
+        waterTime
       );
     }
 
