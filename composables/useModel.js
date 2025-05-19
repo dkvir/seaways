@@ -53,7 +53,7 @@ export const useModel = class Model {
         });
 
         this.scene.add(this.model);
-        console.log("Model loaded successfully:", modelPath);
+        // console.log("Model loaded successfully:", modelPath);
 
         this.createModelPhysics(position);
 
@@ -67,7 +67,7 @@ export const useModel = class Model {
         action.play();
       },
       (xhr) => {
-        console.log((xhr.loaded / xhr.total) * 100 + "% loaded");
+        // console.log((xhr.loaded / xhr.total) * 100 + "% loaded");
       },
       (error) => {
         console.error("An error occurred loading the model:", error);
