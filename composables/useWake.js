@@ -10,22 +10,23 @@ export const useWake = class WakeEffect {
     this.wakeWidth = 70;
     this.wakeLength = 190;
 
-    // Increase this value to make wake more visible above water
-    this.heightOffset = 0.5;
+    // Smaller height offset for precise positioning just above water
+    this.heightOffset = 0.05;
 
     this.wakeGeometry = null;
-    // Increase resolution for smoother wake effect
-    this.wakeResolution = { width: 32, length: 64 };
+    // Higher resolution for smoother surface matching
+    this.wakeResolution = { width: 64, length: 128 };
     this.time = 0;
-    this.debug = false; // Set to true for debugging
+    this.debug = false;
 
-    // Material properties for wake effect - solid white
+    // Material properties for wake effect
     this.wakeColor = 0xffffff;
-    this.fadeDistance = 40; // Distance from boat where wake starts to fade
+    this.wakeOpacity = 0.7;
+    this.fadeDistance = 40;
   }
 
   init() {
-    // Create wake plane geometry with higher resolution
+    // Create high resolution wake plane geometry
     this.wakeGeometry = new THREE.PlaneGeometry(
       this.wakeWidth,
       this.wakeLength,
@@ -33,21 +34,31 @@ export const useWake = class WakeEffect {
       this.wakeResolution.length
     );
 
-    // Create custom shader material for wake effect with solid white color
+    // Create semi-transparent material for wake effect
     const wakeMaterial = new THREE.MeshBasicMaterial({
       color: this.wakeColor,
+      transparent: true,
+      opacity: this.wakeOpacity,
       side: THREE.DoubleSide,
       depthWrite: false,
+      blending: THREE.AdditiveBlending,
     });
 
-    // Create wake plane mesh with the custom material
+    // Create wake plane mesh
     this.wakePlane = new THREE.Mesh(this.wakeGeometry, wakeMaterial);
 
-    // Rotate plane to be horizontal
+    // Rotate plane to be horizontal - same orientation as water plane
     this.wakePlane.rotation.x = -Math.PI / 2;
 
-    // Raise it up slightly to avoid z-fighting with water surface
-    this.wakePlane.position.y = this.heightOffset;
+    // Store original vertices for reference
+    this.originalVertices = [];
+    const positions = this.wakeGeometry.attributes.position;
+    for (let i = 0; i < positions.count; i++) {
+      this.originalVertices.push({
+        x: positions.getX(i),
+        y: positions.getY(i),
+      });
+    }
 
     // Add to scene
     this.scene.add(this.wakePlane);
@@ -57,7 +68,6 @@ export const useWake = class WakeEffect {
       const axisHelper = new THREE.AxesHelper(10);
       this.wakePlane.add(axisHelper);
 
-      // Add wireframe to visualize geometry
       const wireframe = new THREE.WireframeGeometry(this.wakeGeometry);
       const line = new THREE.LineSegments(wireframe);
       line.material.color.set(0xff0000);
@@ -77,9 +87,7 @@ export const useWake = class WakeEffect {
 
     this.time = time;
 
-    // No need to update shader uniforms - using basic material now
-
-    // Position wake behind the boat based on its orientation
+    // Get boat direction vector
     const boatDirection = new THREE.Vector3(0, 0, -1); // Assuming boat forward is -Z
     boatDirection.applyQuaternion(
       new THREE.Quaternion(
@@ -91,11 +99,11 @@ export const useWake = class WakeEffect {
     );
 
     // Position wake slightly behind the boat
-    const wakeOffset = boatDirection.clone().multiplyScalar(-5); // Offset wake behind boat
+    const wakeOffset = boatDirection.clone().multiplyScalar(-5);
 
     this.wakePlane.position.set(
       bodyPosition.x + wakeOffset.x,
-      bodyPosition.y + this.heightOffset, // Keep height offset constant
+      bodyPosition.y, // Base position - will be adjusted by heightOffset in wave distortion
       bodyPosition.z + wakeOffset.z
     );
 
@@ -113,7 +121,7 @@ export const useWake = class WakeEffect {
     // Keep plane horizontal but rotate based on boat's yaw
     this.wakePlane.rotation.set(-Math.PI / 2, 0, euler.y);
 
-    // Apply wave distortion to match water waves
+    // Apply wave distortion to match water shader exactly
     this.applyGerstnerWaveDistortion(time);
 
     // Log position periodically for debugging
@@ -127,75 +135,71 @@ export const useWake = class WakeEffect {
     }
   }
 
-  // Apply Gerstner waves to match the water shader but keep wake above water
+  // Apply the exact same wave distortion as the water with a height offset
   applyGerstnerWaveDistortion(time) {
     if (!this.wakeGeometry || !this.wakePlane) return;
 
     const positions = this.wakeGeometry.attributes.position;
+
+    // Save the wake's current world position and rotation for positioning
     const wakeWorldPosition = new THREE.Vector3();
     this.wakePlane.getWorldPosition(wakeWorldPosition);
 
-    // Sample the water wave heights at several key points to find lowest and highest points
-    let minWaveHeight = Infinity;
-    let maxWaveHeight = -Infinity;
+    // Get local-to-world and world-to-local matrices for coordinate conversions
+    const wakeWorldMatrix = this.wakePlane.matrixWorld.clone();
+    const wakeWorldMatrixInverse = new THREE.Matrix4()
+      .copy(wakeWorldMatrix)
+      .invert();
 
     // For each vertex in the wake geometry
     for (let i = 0; i < positions.count; i++) {
-      // Get original vertex position in local coordinates
-      let x = positions.getX(i);
-      let y = positions.getY(i);
-      let z = positions.getZ(i);
+      // Get vertex position in local coordinates
+      const x = positions.getX(i);
+      const y = positions.getY(i);
+      const z = 0; // Original z value, will be replaced
 
-      // Convert to world position for wave calculation
+      // Convert to world position
       const localPos = new THREE.Vector3(x, y, z);
-      const worldPos = this.wakePlane.localToWorld(localPos.clone());
+      const worldPos = localPos.clone().applyMatrix4(wakeWorldMatrix);
 
-      // Apply Gerstner wave function (similar to shader)
-      const p = new THREE.Vector3(worldPos.x, worldPos.z, 0); // Swap Y and Z due to plane rotation
+      // We only need the x,z coordinates from world space to calculate the water height
+      // This is the exact point on the water surface below this wake vertex
+      const worldX = worldPos.x;
+      const worldZ = worldPos.z;
 
-      // Start with zero displacement
-      const displacement = new THREE.Vector3(0, 0, 0);
+      // Calculate the water height at this x,z position using the exact same Gerstner wave formula
+      // This code is identical to what's in the water shader
+      let waterHeight = 0;
 
-      // Apply each wave effect
-      Object.keys(this.waves).forEach((wave) => {
-        const w = this.waves[wave];
-        const k = (Math.PI * 2) / w.wavelength;
+      for (let j = 0; j < this.waves.length; j++) {
+        const wave = this.waves[j];
+        const k = (Math.PI * 2) / wave.wavelength;
         const c = Math.sqrt(9.8 / k);
         const d = new THREE.Vector2(
-          Math.sin((w.direction * Math.PI) / 180),
-          Math.cos((w.direction * Math.PI) / 180)
+          Math.sin((wave.direction * Math.PI) / 180),
+          Math.cos((wave.direction * Math.PI) / 180)
         );
-        const f = k * (d.dot(new THREE.Vector2(p.x, p.y)) - c * time);
-        const a = w.steepness / k;
+        const f = k * (d.dot(new THREE.Vector2(worldX, worldZ)) - c * time);
+        const a = wave.steepness / k;
 
-        // Gerstner wave formula
-        displacement.x += d.x * (a * Math.cos(f));
-        displacement.y += a * Math.sin(f);
-        displacement.z += d.y * (a * Math.cos(f));
-      });
+        // Only need the Y component of the displacement for height
+        waterHeight += a * Math.sin(f);
+      }
 
-      // Keep track of lowest and highest wave points
-      minWaveHeight = Math.min(minWaveHeight, displacement.y);
-      maxWaveHeight = Math.max(maxWaveHeight, displacement.y);
+      // Create the point at water surface level
+      const waterSurfacePoint = new THREE.Vector3(worldX, waterHeight, worldZ);
 
-      // Apply wave height plus a significant offset to ensure it stays above water
-      // Increase this value if wake is still going below water
-      positions.setZ(i, displacement.y + 0.3);
-    }
+      // Add the height offset to position the wake above the water
+      waterSurfacePoint.y += this.heightOffset;
 
-    // Calculate wave height range
-    const waveHeightRange = maxWaveHeight - minWaveHeight;
+      // Convert back to wake's local coordinates
+      const offsetLocalPos = waterSurfacePoint
+        .clone()
+        .applyMatrix4(wakeWorldMatrixInverse);
 
-    // If debug is enabled, log the wave height range occasionally
-    if (this.debug && Math.floor(time * 10) % 100 === 0) {
-      console.log(
-        "Wave height range:",
-        waveHeightRange,
-        "Min:",
-        minWaveHeight,
-        "Max:",
-        maxWaveHeight
-      );
+      // Apply the height to the wake vertex
+      // We only need to update Z since X and Y define the grid position
+      positions.setZ(i, offsetLocalPos.z);
     }
 
     // Update geometry
