@@ -169,15 +169,6 @@ function animate() {
     modelClass.applyBuoyancyForce();
     modelClass.updateMixer(delta);
 
-    const waterTime = waterClass.getWater().material.uniforms["time"].value;
-    if (wakeEffect) {
-      wakeEffect.update(
-        modelClass.getModelBody().position,
-        modelClass.getModelBody().quaternion,
-        waterTime
-      );
-    }
-
     if (cannonDebugRenderer) {
       cannonDebugRenderer.update();
     }
