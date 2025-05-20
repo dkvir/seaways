@@ -40,7 +40,18 @@ const waves = [
 onMounted(() => {
   init();
   animate();
-  useGui(waterClass.getWater(), waves, scene, cannonDebugRenderer);
+  // Modified to use the returned object from useGui
+  const { addWakeControls } = useGui(
+    waterClass.getWater(),
+    waves,
+    scene,
+    cannonDebugRenderer
+  );
+
+  // Pass the wake effect instance to add wake controls after it's initialized
+  if (wakeEffect) {
+    addWakeControls(wakeEffect);
+  }
 });
 
 function init() {

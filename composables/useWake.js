@@ -7,11 +7,17 @@ export const useWake = class WakeEffect {
     this.mainWater = mainWater;
     this.waves = waves;
     this.wakePlane = null;
-    this.wakeWidth = 70;
-    this.wakeLength = 400;
 
-    // Smaller height offset for precise positioning just above water
-    this.heightOffset = 0.05;
+    // Make these properties accessible for GUI
+    this.wakeProperties = {
+      width: 70,
+      length: 400,
+      heightOffset: 0.05,
+      positionX: -6.5,
+      positionY: 4,
+      positionZ: -105,
+      opacity: 1.0,
+    };
 
     this.wakeGeometry = null;
     // Higher resolution for smoother surface matching
@@ -21,15 +27,14 @@ export const useWake = class WakeEffect {
 
     // Material properties for wake effect
     this.wakeColor = 0xffffff;
-    this.wakeOpacity = 0.7;
     this.fadeDistance = 40;
   }
 
   init() {
     // Create high resolution wake plane geometry
     this.wakeGeometry = new THREE.PlaneGeometry(
-      this.wakeWidth,
-      this.wakeLength,
+      this.wakeProperties.width,
+      this.wakeProperties.length,
       this.wakeResolution.width,
       this.wakeResolution.length
     );
@@ -38,7 +43,7 @@ export const useWake = class WakeEffect {
     const wakeMaterial = new THREE.MeshBasicMaterial({
       color: this.wakeColor,
       transparent: true,
-      opacity: this.wakeOpacity,
+      opacity: this.wakeProperties.opacity,
       side: THREE.DoubleSide,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
@@ -49,6 +54,13 @@ export const useWake = class WakeEffect {
 
     // Rotate plane to be horizontal - same orientation as water plane
     this.wakePlane.rotation.x = -Math.PI / 2;
+
+    // Set initial position
+    this.wakePlane.position.set(
+      this.wakeProperties.positionX,
+      this.wakeProperties.positionY,
+      this.wakeProperties.positionZ
+    );
 
     // Store original vertices for reference
     this.originalVertices = [];
@@ -77,5 +89,64 @@ export const useWake = class WakeEffect {
 
       console.log("Wake plane initialized with debug mode:", this.wakePlane);
     }
+  }
+
+  // Method to update wake plane dimensions
+  updateDimensions(width, length) {
+    this.wakeProperties.width = width;
+    this.wakeProperties.length = length;
+
+    // Remove old geometry
+    this.wakeGeometry.dispose();
+
+    // Create new geometry with updated dimensions
+    this.wakeGeometry = new THREE.PlaneGeometry(
+      width,
+      length,
+      this.wakeResolution.width,
+      this.wakeResolution.length
+    );
+
+    // Update mesh with new geometry
+    this.wakePlane.geometry = this.wakeGeometry;
+
+    // Update vertices reference
+    this.originalVertices = [];
+    const positions = this.wakeGeometry.attributes.position;
+    for (let i = 0; i < positions.count; i++) {
+      this.originalVertices.push({
+        x: positions.getX(i),
+        y: positions.getY(i),
+      });
+    }
+  }
+
+  // Method to update wake plane position
+  updatePosition(x, y, z) {
+    this.wakeProperties.positionX = x;
+    this.wakeProperties.positionY = y;
+    this.wakeProperties.positionZ = z;
+    this.wakePlane.position.set(x, y, z);
+  }
+
+  // Method to update opacity
+  updateOpacity(opacity) {
+    this.wakeProperties.opacity = opacity;
+    this.wakePlane.material.opacity = opacity;
+  }
+
+  // Method to toggle visibility
+  toggleVisibility(visible) {
+    this.wakePlane.visible = visible;
+  }
+
+  // Getter for wake plane
+  getWakePlane() {
+    return this.wakePlane;
+  }
+
+  // Getter for wake properties
+  getWakeProperties() {
+    return this.wakeProperties;
   }
 };
