@@ -100,6 +100,8 @@ export const useGui = (water, waves, scene, cannonDebugRenderer) => {
   const addWakeControls = (wake) => {
     if (wake) {
       wakeEffect = wake;
+
+      // Main Wake Folder
       const wakeFolder = gui.addFolder("Wake Effect");
 
       // Add visibility toggle
@@ -156,7 +158,118 @@ export const useGui = (water, waves, scene, cannonDebugRenderer) => {
           wakeEffect.updateOpacity(value);
         });
 
+      // Add Foam Effects Controls in a separate subfolder
+      const foamProps = wakeEffect.getFoamProperties();
+      const foamFolder = wakeFolder.addFolder("Foam Effects");
+
+      // Scale
+      foamFolder
+        .add(foamProps, "scale", 0.01, 2)
+        .name("Scale")
+        .onChange((value) => {
+          wakeEffect.updateFoamParameter("scale", value);
+        });
+
+      // Power control
+      foamFolder
+        .add(foamProps, "voronoiPower", 0.1, 5)
+        .name("Power")
+        .onChange((value) => {
+          wakeEffect.updateFoamParameter("voronoiPower", value);
+        });
+
+      // Layer A controls
+      const layerAFolder = foamFolder.addFolder("Layer A");
+      layerAFolder
+        .add(foamProps, "voronoiScaleA", 10, 300)
+        .name("Scale")
+        .onChange((value) => {
+          wakeEffect.updateFoamParameter("voronoiScaleA", value);
+        });
+
+      layerAFolder
+        .add(foamProps, "voronoiSmoothnessA", 0.1, 2)
+        .name("Smoothness")
+        .onChange((value) => {
+          wakeEffect.updateFoamParameter("voronoiSmoothnessA", value);
+        });
+
+      layerAFolder
+        .add(foamProps, "voronoiSpeedA", 0, 2)
+        .name("Speed")
+        .onChange((value) => {
+          wakeEffect.updateFoamParameter("voronoiSpeedA", value);
+        });
+
+      // Layer B controls
+      const layerBFolder = foamFolder.addFolder("Layer B");
+      layerBFolder
+        .add(foamProps, "voronoiScaleB", 10, 300)
+        .name("Scale")
+        .onChange((value) => {
+          wakeEffect.updateFoamParameter("voronoiScaleB", value);
+        });
+
+      layerBFolder
+        .add(foamProps, "voronoiSmoothnessB", 0.1, 2)
+        .name("Smoothness")
+        .onChange((value) => {
+          wakeEffect.updateFoamParameter("voronoiSmoothnessB", value);
+        });
+
+      layerBFolder
+        .add(foamProps, "voronoiSpeedB", 0, 2)
+        .name("Speed")
+        .onChange((value) => {
+          wakeEffect.updateFoamParameter("voronoiSpeedB", value);
+        });
+
+      // Layer C controls
+      const layerCFolder = foamFolder.addFolder("Layer C");
+      layerCFolder
+        .add(foamProps, "voronoiScaleC", 10, 300)
+        .name("Scale")
+        .onChange((value) => {
+          wakeEffect.updateFoamParameter("voronoiScaleC", value);
+        });
+
+      layerCFolder
+        .add(foamProps, "voronoiSmoothnessC", 0.1, 2)
+        .name("Smoothness")
+        .onChange((value) => {
+          wakeEffect.updateFoamParameter("voronoiSmoothnessC", value);
+        });
+
+      layerCFolder
+        .add(foamProps, "voronoiSpeedC", 0, 2)
+        .name("Speed")
+        .onChange((value) => {
+          wakeEffect.updateFoamParameter("voronoiSpeedC", value);
+        });
+
+      // Add color control
+      const colorController = {
+        color: [
+          foamProps.voronoiColor.r * 255,
+          foamProps.voronoiColor.g * 255,
+          foamProps.voronoiColor.b * 255,
+        ],
+      };
+
+      foamFolder
+        .addColor(colorController, "color")
+        .name("Foam Color")
+        .onChange((value) => {
+          wakeEffect.updateFoamColor(
+            value[0] / 255,
+            value[1] / 255,
+            value[2] / 255
+          );
+        });
+
+      // Open the folders
       wakeFolder.open();
+      foamFolder.open();
     }
   };
 
