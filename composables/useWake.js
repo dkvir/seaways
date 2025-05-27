@@ -10,13 +10,24 @@ export const useWake = class WakeEffect {
 
     // Make these properties accessible for GUI
     this.wakeProperties = {
-      width: 70,
+      width: 90,
       length: 400,
       heightOffset: 0.05,
       positionX: -6.5,
       positionY: 4,
       positionZ: -105,
       opacity: 1.0,
+    };
+
+    // Enhanced wave animation properties
+    this.waveProperties = {
+      waveFreq: 0.13,
+      waveAmp: 1.0,
+      waveRoughness: 8.0,
+      timeScale: 1.0,
+      octaves: 6,
+      persistance: 0.1,
+      lacunarity: 1.5,
     };
 
     // Foam shader parameters
@@ -32,7 +43,9 @@ export const useWake = class WakeEffect {
       voronoiScaleC: 50.0,
       voronoiPower: 1.0,
       voronoiColor: new THREE.Color(1, 1, 1),
-      scale: 0.25,
+      scale: 0.01,
+      foamThreshold: 0.3,
+      foamIntensity: 2.0,
     };
 
     this.wakeGeometry = null;
@@ -52,10 +65,10 @@ export const useWake = class WakeEffect {
       this.wakeResolution.length
     );
 
-    // Create foam shader material
-    const foamShader = this.createFoamShader();
+    // Create enhanced foam shader material
+    const foamShader = this.createEnhancedFoamShader();
 
-    // Create wake plane mesh with the foam shader
+    // Create wake plane mesh with the enhanced foam shader
     this.wakePlane = new THREE.Mesh(this.wakeGeometry, foamShader);
 
     // Rotate plane to be horizontal - same orientation as water plane
@@ -97,8 +110,8 @@ export const useWake = class WakeEffect {
     }
   }
 
-  createFoamShader() {
-    // Create custom shader material for foam effect
+  createEnhancedFoamShader() {
+    // Create custom shader material with ocean-style wave animation
     const foamShader = new THREE.ShaderMaterial({
       uniforms: {
         iTime: { value: 0 },
@@ -108,6 +121,7 @@ export const useWake = class WakeEffect {
             this.wakeProperties.length
           ),
         },
+        // Foam properties
         voronoiSmoothnessA: { value: this.foamProperties.voronoiSmoothnessA },
         voronoiSmoothnessB: { value: this.foamProperties.voronoiSmoothnessB },
         voronoiSmoothnessC: { value: this.foamProperties.voronoiSmoothnessC },
@@ -120,13 +134,28 @@ export const useWake = class WakeEffect {
         voronoiPower: { value: this.foamProperties.voronoiPower },
         voronoiColor: { value: this.foamProperties.voronoiColor },
         scale: { value: this.foamProperties.scale },
+        foamThreshold: { value: this.foamProperties.foamThreshold },
+        foamIntensity: { value: this.foamProperties.foamIntensity },
         opacity: { value: this.wakeProperties.opacity },
+        // Wave animation properties
+        waveFreq: { value: this.waveProperties.waveFreq },
+        waveAmp: { value: this.waveProperties.waveAmp },
+        waveRoughness: { value: this.waveProperties.waveRoughness },
+        timeScale: { value: this.waveProperties.timeScale },
+        octaves: { value: this.waveProperties.octaves },
+        persistance: { value: this.waveProperties.persistance },
+        lacunarity: { value: this.waveProperties.lacunarity },
       },
       vertexShader: `
         varying vec2 vUv;
+        varying vec3 vPosition;
+        varying vec3 vWorldPosition;
 
         void main() {
           vUv = uv;
+          vPosition = position;
+          vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+          vWorldPosition = worldPosition.xyz;
           gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
         }
       `,
@@ -145,10 +174,81 @@ export const useWake = class WakeEffect {
         uniform float voronoiPower;
         uniform vec3 voronoiColor;
         uniform float scale;
+        uniform float foamThreshold;
+        uniform float foamIntensity;
         uniform float opacity;
 
-        varying vec2 vUv;
+        // Wave animation uniforms
+        uniform float waveFreq;
+        uniform float waveAmp;
+        uniform float waveRoughness;
+        uniform float timeScale;
+        uniform int octaves;
+        uniform float persistance;
+        uniform float lacunarity;
 
+        varying vec2 vUv;
+        varying vec3 vPosition;
+        varying vec3 vWorldPosition;
+
+        const float pi = 3.14159265359;
+        const vec4 cHashA4 = vec4(0., 1., 57., 58.);
+        const float cHashM = 43758.54;
+
+        // Hash functions from the ocean shader
+        vec4 Hashv4f(float p) {
+          return fract(sin(p + cHashA4) * cHashM);
+        }
+
+        vec2 Noisev2v4(vec4 p) {
+          vec4 i, f, t1, t2;
+          i = floor(p);
+          f = fract(p);
+          f = f * f * (3. - 2. * f);
+          t1 = Hashv4f(dot(i.xy, vec2(1., 57.)));
+          t2 = Hashv4f(dot(i.zw, vec2(1., 57.)));
+          return vec2(
+            mix(mix(t1.x, t1.y, f.x), mix(t1.z, t1.w, f.x), f.y),
+            mix(mix(t2.x, t2.y, f.z), mix(t2.z, t2.w, f.z), f.w)
+          );
+        }
+
+        // Wave height calculation adapted from ocean shader
+        float WaveHt(vec3 p) {
+          const mat2 qRot = mat2(1.6, -1.2, 1.2, 1.6);
+          vec4 t4, t4o, ta4, v4;
+          vec2 q2, t2, v2;
+          float wFreq, wAmp, pRough, ht;
+
+          wFreq = waveFreq;
+          wAmp = waveAmp;
+          pRough = waveRoughness;
+
+          t4o.xz = iTime * timeScale * vec2(1., -1.);
+          q2 = p.xz;
+          ht = 0.;
+
+          for(int j = 0; j < 4; j++) {
+            if(j >= octaves) break;
+
+            t4 = (t4o.xxzz + vec4(q2, q2)) * wFreq;
+            t2 = Noisev2v4(t4);
+            t4 += 2. * vec4(t2.xx, t2.yy) - 1.;
+            ta4 = abs(sin(t4));
+            v4 = (1. - ta4) * (ta4 + sqrt(1. - ta4 * ta4));
+            v2 = pow(1. - pow(v4.xz * v4.yw, vec2(0.65)), vec2(pRough));
+            ht += (v2.x + v2.y) * wAmp;
+
+            q2 *= qRot;
+            wFreq *= lacunarity;
+            wAmp *= persistance;
+            pRough = 0.8 * pRough + 0.2;
+          }
+
+          return ht;
+        }
+
+        // Enhanced foam generation with wave-based turbulence
         vec3 Hash(vec2 p) {
           float a = dot(p, vec2(127.1, 311.7));
           float b = dot(p, vec2(269.5, 183.3));
@@ -180,25 +280,56 @@ export const useWake = class WakeEffect {
           return minDistance;
         }
 
-        float Foam(vec2 p) {
+        float Foam(vec2 p, float waveInfluence) {
+          // Add wave-based distortion to foam pattern
+          vec2 distortion = vec2(
+            WaveHt(vec3(p.x * 0.1, 0.0, p.y * 0.1)),
+            WaveHt(vec3(p.x * 0.1 + 100.0, 0.0, p.y * 0.1 + 100.0))
+          ) * 0.1;
+
+          p += distortion;
+
           float layer1 = Voronoi(voronoiScaleA * p, voronoiSmoothnessA, voronoiSpeedA);
           float layer2 = Voronoi(voronoiScaleB * p, voronoiSmoothnessB, voronoiSpeedB);
           float layer3 = Voronoi(voronoiScaleC * p, voronoiSmoothnessC, voronoiSpeedC);
-          return pow(min(min(layer1, layer2), layer3), voronoiPower);
+
+          float foam = pow(min(min(layer1, layer2), layer3), voronoiPower);
+
+          // Enhance foam based on wave activity
+          foam = mix(foam, foam * foamIntensity, waveInfluence);
+
+          return foam;
         }
 
         void main() {
           vec2 uv = vUv;
 
+          // Calculate wave influence at this position
+          float waveHeight = WaveHt(vWorldPosition);
+          float waveInfluence = smoothstep(foamThreshold, 1.0, abs(waveHeight));
+
           // Create a gradient that fades out at the edges
           float edgeFade = 1.0 - 2.0 * max(abs(vUv.x - 0.5), abs(vUv.y - 0.5));
           edgeFade = smoothstep(0.0, 0.5, edgeFade);
 
-          // Get foam value
-          float foam = Foam(uv * scale);
+          // Create wake pattern - stronger at the center, fading to sides
+          float wakePattern = 1.0 - abs(vUv.x - 0.5) * 2.0;
+          wakePattern = pow(wakePattern, 2.0);
+
+          // Get enhanced foam value with wave influence
+          float foam = Foam(uv * scale, waveInfluence);
+
+          // Combine foam with wake pattern and wave activity
+          foam = foam * wakePattern * (1.0 + waveInfluence * 0.5);
+
+          // Add wave-based brightness variation
+          float brightness = 1.0 + waveHeight * 0.3;
 
           // Apply color and transparency
-          gl_FragColor = vec4(foam * voronoiColor, foam * opacity * edgeFade);
+          vec3 finalColor = foam * voronoiColor * brightness;
+          float finalAlpha = foam * opacity * edgeFade;
+
+          gl_FragColor = vec4(finalColor, finalAlpha);
         }
       `,
       transparent: true,
@@ -208,6 +339,20 @@ export const useWake = class WakeEffect {
     });
 
     return foamShader;
+  }
+
+  // Enhanced method to update wave properties
+  updateWaveParameter(paramName, value) {
+    if (this.waveProperties.hasOwnProperty(paramName)) {
+      this.waveProperties[paramName] = value;
+
+      if (this.wakePlane && this.wakePlane.material) {
+        // Update the corresponding shader uniform
+        if (this.wakePlane.material.uniforms[paramName]) {
+          this.wakePlane.material.uniforms[paramName].value = value;
+        }
+      }
+    }
   }
 
   // Method to update wake plane dimensions
@@ -307,5 +452,10 @@ export const useWake = class WakeEffect {
   // Getter for foam properties
   getFoamProperties() {
     return this.foamProperties;
+  }
+
+  // Getter for wave animation properties
+  getWaveProperties() {
+    return this.waveProperties;
   }
 };

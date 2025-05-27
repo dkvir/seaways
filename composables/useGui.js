@@ -158,6 +158,59 @@ export const useGui = (water, waves, scene, cannonDebugRenderer) => {
           wakeEffect.updateOpacity(value);
         });
 
+      // Add Wave Animation Controls
+      const waveProps = wakeEffect.getWaveProperties();
+      const waveAnimFolder = wakeFolder.addFolder("Wave Animation");
+
+      waveAnimFolder
+        .add(waveProps, "waveFreq", 0.1, 1.0)
+        .name("Wave Frequency")
+        .onChange((value) => {
+          wakeEffect.updateWaveParameter("waveFreq", value);
+        });
+
+      waveAnimFolder
+        .add(waveProps, "waveAmp", 0.1, 1.0)
+        .name("Wave Amplitude")
+        .onChange((value) => {
+          wakeEffect.updateWaveParameter("waveAmp", value);
+        });
+
+      waveAnimFolder
+        .add(waveProps, "waveRoughness", 1.0, 20.0)
+        .name("Wave Roughness")
+        .onChange((value) => {
+          wakeEffect.updateWaveParameter("waveRoughness", value);
+        });
+
+      waveAnimFolder
+        .add(waveProps, "timeScale", 0.1, 3.0)
+        .name("Time Scale")
+        .onChange((value) => {
+          wakeEffect.updateWaveParameter("timeScale", value);
+        });
+
+      waveAnimFolder
+        .add(waveProps, "octaves", 1, 6, 1)
+        .name("Octaves")
+        .onChange((value) => {
+          wakeEffect.updateWaveParameter("octaves", value);
+        });
+
+      waveAnimFolder
+        .add(waveProps, "persistance", 0.1, 0.8)
+        .name("Persistance")
+        .onChange((value) => {
+          wakeEffect.updateWaveParameter("persistance", value);
+        });
+
+      waveAnimFolder
+        .add(waveProps, "lacunarity", 1.5, 3.0)
+        .name("Lacunarity")
+        .onChange((value) => {
+          wakeEffect.updateWaveParameter("lacunarity", value);
+        });
+
       // Add Foam Effects Controls in a separate subfolder
       const foamProps = wakeEffect.getFoamProperties();
       const foamFolder = wakeFolder.addFolder("Foam Effects");
@@ -176,6 +229,21 @@ export const useGui = (water, waves, scene, cannonDebugRenderer) => {
         .name("Power")
         .onChange((value) => {
           wakeEffect.updateFoamParameter("voronoiPower", value);
+        });
+
+      // Foam threshold and intensity
+      foamFolder
+        .add(foamProps, "foamThreshold", 0.0, 1.0)
+        .name("Foam Threshold")
+        .onChange((value) => {
+          wakeEffect.updateFoamParameter("foamThreshold", value);
+        });
+
+      foamFolder
+        .add(foamProps, "foamIntensity", 1.0, 5.0)
+        .name("Foam Intensity")
+        .onChange((value) => {
+          wakeEffect.updateFoamParameter("foamIntensity", value);
         });
 
       // Layer A controls
