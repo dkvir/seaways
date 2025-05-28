@@ -183,6 +183,10 @@ function animate() {
     if (cannonDebugRenderer) {
       cannonDebugRenderer.update();
     }
+
+    if (wakeEffect) {
+      wakeEffect.update(delta);
+    }
   }
 
   world.step(delta);

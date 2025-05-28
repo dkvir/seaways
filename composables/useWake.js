@@ -32,20 +32,20 @@ export const useWake = class WakeEffect {
 
     // Foam shader parameters
     this.foamProperties = {
-      voronoiSmoothnessA: 0.5,
-      voronoiSmoothnessB: 0.5,
+      voronoiSmoothnessA: 0.3,
+      voronoiSmoothnessB: 0.4,
       voronoiSmoothnessC: 0.5,
-      voronoiSpeedA: 0.5,
-      voronoiSpeedB: 0.5,
-      voronoiSpeedC: 0.5,
+      voronoiSpeedA: 0.3,
+      voronoiSpeedB: 0.2,
+      voronoiSpeedC: 0.4,
       voronoiScaleA: 150.0,
       voronoiScaleB: 100.0,
       voronoiScaleC: 50.0,
-      voronoiPower: 1.0,
+      voronoiPower: 0.7,
       voronoiColor: new THREE.Color(1, 1, 1),
       scale: 0.01,
-      foamThreshold: 0.3,
-      foamIntensity: 2.0,
+      foamThreshold: 0.4,
+      foamIntensity: 1.2,
     };
 
     this.wakeGeometry = null;
@@ -232,89 +232,128 @@ export const useWake = class WakeEffect {
           return ht;
         }
 
-        // Enhanced foam generation with wave-based turbulence
+        // Improved hash function for better distribution
         vec3 Hash(vec2 p) {
-          float a = dot(p, vec2(127.1, 311.7));
-          float b = dot(p, vec2(269.5, 183.3));
-          float c = dot(p, vec2(419.2, 371.9));
-          return fract(sin(vec3(a, b, c)) * 43758.5453);
+          vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973));
+          p3 += dot(p3, p3.yxz + 33.33);
+          return fract((p3.xxy + p3.yzz) * p3.zyx);
         }
 
-        float Voronoi(vec2 uv, float weight, float speed) {
+        // Improved Voronoi function with smoother animation
+        float Voronoi(vec2 uv, float smoothness, float speed) {
           vec2 cell = floor(uv);
           vec2 fraction = fract(uv);
           float minDistance = 8.0;
 
-          for(int j=-1; j<=1; j++) {
-            for(int i=-1; i<=1; i++) {
+          for(int j = -1; j <= 1; j++) {
+            for(int i = -1; i <= 1; i++) {
               vec2 offset = vec2(float(i), float(j));
               vec2 neighbor = cell + offset;
               vec3 hash = Hash(neighbor);
-              float currentDistance = length(offset - fraction + hash.xy);
-              float scaleValue = hash.x * hash.y;
-              float time = fract(iTime * speed);
-              if (hash.z < time) scaleValue = scaleValue * time;
-              currentDistance += scaleValue;
-              float blendFactor = smoothstep(-1.0, 1.0, (minDistance - currentDistance) / weight);
-              minDistance = mix(minDistance, currentDistance, blendFactor);
-              minDistance -= blendFactor * (1.0 - blendFactor) * weight / (1.0 + 3.0 * weight);
+
+              // Smooth animation with sine wave instead of fract for smoother transitions
+              vec2 point = 0.5 + 0.3 * sin(iTime * speed + 6.2831 * hash.xy);
+              vec2 diff = offset + point - fraction;
+              float distance = length(diff);
+
+              // Smooth minimum using exponential blending
+              float h = max(smoothness - abs(distance - minDistance), 0.0) / smoothness;
+              minDistance = mix(minDistance, distance, h) - h * (1.0 - h) * smoothness * 0.5;
             }
           }
 
           return minDistance;
         }
 
+        // Alternative Voronoi with F1 - F2 for more interesting patterns
+        float VoronoiF1F2(vec2 uv, float smoothness, float speed) {
+          vec2 cell = floor(uv);
+          vec2 fraction = fract(uv);
+
+          float f1 = 8.0;
+          float f2 = 8.0;
+
+          for(int j = -1; j <= 1; j++) {
+            for(int i = -1; i <= 1; i++) {
+              vec2 offset = vec2(float(i), float(j));
+              vec2 neighbor = cell + offset;
+              vec3 hash = Hash(neighbor);
+
+              // Smoother point animation
+              vec2 point = 0.5 + 0.35 * sin(iTime * speed + 6.2831 * hash.xy);
+              vec2 diff = offset + point - fraction;
+              float distance = length(diff);
+
+              if(distance < f1) {
+                f2 = f1;
+                f1 = distance;
+              } else if(distance < f2) {
+                f2 = distance;
+              }
+            }
+          }
+
+          // Return the difference for interesting edge patterns
+          return smoothstep(0.0, smoothness, f2 - f1);
+        }
+
         float Foam(vec2 p, float waveInfluence) {
-          // Add wave-based distortion to foam pattern
+          // Reduce wave distortion to minimize noise
           vec2 distortion = vec2(
-            WaveHt(vec3(p.x * 0.1, 0.0, p.y * 0.1)),
-            WaveHt(vec3(p.x * 0.1 + 100.0, 0.0, p.y * 0.1 + 100.0))
-          ) * 0.1;
+            WaveHt(vec3(p.x * 0.05, 0.0, p.y * 0.05)),
+            WaveHt(vec3(p.x * 0.05 + 100.0, 0.0, p.y * 0.05 + 100.0))
+          ) * 0.05;
 
           p += distortion;
 
+          // Use improved Voronoi functions
           float layer1 = Voronoi(voronoiScaleA * p, voronoiSmoothnessA, voronoiSpeedA);
-          float layer2 = Voronoi(voronoiScaleB * p, voronoiSmoothnessB, voronoiSpeedB);
+          float layer2 = VoronoiF1F2(voronoiScaleB * p, voronoiSmoothnessB, voronoiSpeedB);
           float layer3 = Voronoi(voronoiScaleC * p, voronoiSmoothnessC, voronoiSpeedC);
 
-          float foam = pow(min(min(layer1, layer2), layer3), voronoiPower);
+          // Combine layers more smoothly
+          float foam = layer1 * 0.4 + layer2 * 0.4 + layer3 * 0.2;
+          foam = pow(foam, voronoiPower);
 
-          // Enhance foam based on wave activity
-          foam = mix(foam, foam * foamIntensity, waveInfluence);
+          // Apply wave influence more smoothly
+          foam = mix(foam, foam * foamIntensity, waveInfluence * 0.5);
 
-          return foam;
+          return clamp(foam, 0.0, 1.0);
         }
 
         void main() {
-          vec2 uv = vUv;
+        vec2 uv = vUv;
 
-          // Calculate wave influence at this position
-          float waveHeight = WaveHt(vWorldPosition);
-          float waveInfluence = smoothstep(foamThreshold, 1.0, abs(waveHeight));
+        // Calculate wave influence at this position
+        float waveHeight = WaveHt(vWorldPosition);
+        float waveInfluence = smoothstep(foamThreshold, 1.0, abs(waveHeight));
 
-          // Create a gradient that fades out at the edges
-          float edgeFade = 1.0 - 2.0 * max(abs(vUv.x - 0.5), abs(vUv.y - 0.5));
-          edgeFade = smoothstep(0.0, 0.5, edgeFade);
+        // Create a smoother gradient that fades out at the edges - MODIFIED
+        float edgeFade = 1.0 - 1.8 * max(abs(vUv.x - 0.5), abs(vUv.y - 0.5));
+        edgeFade = smoothstep(0.1, 0.9, edgeFade);
 
-          // Create wake pattern - stronger at the center, fading to sides
-          float wakePattern = 1.0 - abs(vUv.x - 0.5) * 2.0;
-          wakePattern = pow(wakePattern, 2.0);
+        // Create wake pattern with reduced center intensity - MODIFIED
+        float wakePattern = 1.0 - abs(vUv.x - 0.5) * 2.0;
+        wakePattern = pow(wakePattern, 0.8) * 0.7;
 
-          // Get enhanced foam value with wave influence
-          float foam = Foam(uv * scale, waveInfluence);
+        // Get enhanced foam value with wave influence
+        float foam = Foam(uv * scale, waveInfluence);
 
-          // Combine foam with wake pattern and wave activity
-          foam = foam * wakePattern * (1.0 + waveInfluence * 0.5);
+        // Combine foam with reduced intensity - MODIFIED
+        foam = foam * wakePattern * (0.6 + waveInfluence * 0.2);
 
-          // Add wave-based brightness variation
-          float brightness = 1.0 + waveHeight * 0.3;
+        // Reduced brightness variation - MODIFIED
+        float brightness = 0.8 + sin(waveHeight * 2.0) * 0.05;
 
-          // Apply color and transparency
-          vec3 finalColor = foam * voronoiColor * brightness;
-          float finalAlpha = foam * opacity * edgeFade;
+        // Apply color and transparency
+        vec3 finalColor = foam * voronoiColor * brightness;
+        float finalAlpha = foam * opacity * edgeFade;
 
-          gl_FragColor = vec4(finalColor, finalAlpha);
-        }
+        // Ensure minimum alpha to prevent complete disappearance
+        finalAlpha = max(finalAlpha, 0.01);
+
+        gl_FragColor = vec4(finalColor, finalAlpha);
+      }
       `,
       transparent: true,
       side: THREE.DoubleSide,
