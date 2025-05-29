@@ -55,13 +55,6 @@ onMounted(() => {
   }
 });
 
-onUnmounted(() => {
-  // Cleanup mouse events
-  if (waterClass) {
-    waterClass.cleanup();
-  }
-});
-
 function init() {
   renderer = new THREE.WebGLRenderer({
     canvas: document.querySelector(".canvas"),
@@ -110,7 +103,7 @@ function init() {
   scene.add(waterClass.getWater());
 
   // Setup mouse events for hover effect
-  waterClass.setupMouseEvents(camera, renderer);
+  // waterClass.setupMouseEvents(camera, renderer);
 
   modelClass = new useModel(
     scene,

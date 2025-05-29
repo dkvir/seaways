@@ -1,20 +1,20 @@
-// Enhanced useWater.js with foam/wake effect
+// Enhanced useWater.js with static foam/wake effect positioned at wake geometry
 import * as THREE from "three";
 import { Water } from "three/examples/jsm/objects/Water";
 
 export const useWater = class WaterWaves {
-  constructor(scene, waves) {
+  constructor(scene, waves, wakeInstance = null) {
     this.water = null;
     this.scene = scene;
     this.waves = waves;
-    this.raycaster = new THREE.Raycaster();
-    this.mouse = new THREE.Vector2();
-    this.hoverPoint = new THREE.Vector3(0, 0, 0);
-    this.isHovering = false;
-    this.hoverRadius = 200.0;
+    this.wakeInstance = wakeInstance; // Reference to wake instance
+
+    // Static foam properties - will be set from wake geometry
+    this.staticFoamPoint = new THREE.Vector3(-6.5, 4, -105);
+    this.foamWidth = 90; // Default, will be updated from wake
+    this.foamLength = 400; // Default, will be updated from wake
     this.foamIntensity = 1.0;
-    this.wakeTrail = []; // Store wake trail points
-    this.maxTrailLength = 20;
+    this.foamEnabled = true;
   }
 
   createWater() {
@@ -92,6 +92,29 @@ export const useWater = class WaterWaves {
 
     this.water.rotation.x = -Math.PI / 2;
     this.setupFoamShader();
+
+    // Initialize foam position from wake instance if available
+    this.updateFoamFromWake();
+  }
+
+  updateFoamFromWake() {
+    if (this.wakeInstance) {
+      const wakeProps = this.wakeInstance.getWakeProperties();
+      this.staticFoamPoint.set(
+        wakeProps.positionX,
+        wakeProps.positionY,
+        wakeProps.positionZ
+      );
+      this.foamWidth = wakeProps.width;
+      this.foamLength = wakeProps.length;
+
+      // Update shader uniforms if they exist
+      if (this.foamUniforms) {
+        this.foamUniforms.staticFoamPoint.value.copy(this.staticFoamPoint);
+        this.foamUniforms.foamWidth.value = this.foamWidth;
+        this.foamUniforms.foamLength.value = this.foamLength;
+      }
+    }
   }
 
   setupFoamShader() {
@@ -99,15 +122,12 @@ export const useWater = class WaterWaves {
       shader.uniforms.offsetX = { value: 0 };
       shader.uniforms.offsetZ = { value: 0 };
 
-      // Foam/wake effect uniforms
-      shader.uniforms.hoverPoint = { value: this.hoverPoint };
-      shader.uniforms.isHovering = { value: 0.0 };
-      shader.uniforms.hoverRadius = { value: this.hoverRadius };
+      // Static foam/wake effect uniforms
+      shader.uniforms.staticFoamPoint = { value: this.staticFoamPoint };
+      shader.uniforms.foamEnabled = { value: this.foamEnabled ? 1.0 : 0.0 };
+      shader.uniforms.foamWidth = { value: this.foamWidth };
+      shader.uniforms.foamLength = { value: this.foamLength };
       shader.uniforms.foamIntensity = { value: this.foamIntensity };
-      shader.uniforms.wakeTrail = {
-        value: new Array(this.maxTrailLength).fill(new THREE.Vector3()),
-      };
-      shader.uniforms.trailLength = { value: 0 };
 
       shader.uniforms.waveA = {
         value: [
@@ -197,7 +217,7 @@ export const useWater = class WaterWaves {
           #include <shadowmap_vertex>
         }`;
 
-      // Enhanced fragment shader with foam/wake effect
+      // Enhanced fragment shader with static foam/wake effect
       shader.fragmentShader = `
         uniform sampler2D mirrorSampler;
         uniform float alpha;
@@ -212,19 +232,18 @@ export const useWater = class WaterWaves {
         uniform float offsetX;
         uniform float offsetZ;
 
-        // Foam/wake effect uniforms
-        uniform vec3 hoverPoint;
-        uniform float isHovering;
-        uniform float hoverRadius;
+        // Static foam/wake effect uniforms
+        uniform vec3 staticFoamPoint;
+        uniform float foamEnabled;
+        uniform float foamWidth;
+        uniform float foamLength;
         uniform float foamIntensity;
-        uniform vec3 wakeTrail[${this.maxTrailLength}];
-        uniform int trailLength;
 
         varying vec4 mirrorCoord;
         varying vec4 worldPosition;
         varying vec3 vWorldPos;
 
-        // Hash functions for noise generation (from the reference shader)
+        // Hash functions for noise generation
         const vec4 cHashA4 = vec4(0., 1., 57., 58.);
         const vec3 cHashA3 = vec3(1., 57., 113.);
         const float cHashM = 43758.54;
@@ -254,7 +273,7 @@ export const useWater = class WaterWaves {
           return f;
         }
 
-        // Create foam pattern similar to reference shader
+        // Create foam pattern
         float foamPattern(vec2 p, float intensity) {
           vec2 q = p * 8.0 + vec2(time * 0.3, time * 0.2);
           float foam = Fbm2(q);
@@ -270,51 +289,63 @@ export const useWater = class WaterWaves {
           return clamp(foam * intensity, 0.0, 1.0);
         }
 
-        // Wake pattern function
-        float wakePattern(vec2 worldPos) {
-          float wakeEffect = 0.0;
+        // Static wake pattern function - rectangular area matching wake geometry
+        float staticWakePattern(vec2 worldPos) {
+            if(foamEnabled < 0.5) return 0.0;
 
-          // Current hover point wake
-          if(isHovering > 0.5) {
-            float dist = length(worldPos - hoverPoint.xz);
-            float normalizedDist = dist / hoverRadius;
+            // Calculate relative position from foam center
+            vec2 relativePos = worldPos - staticFoamPoint.xz;
 
-            if(normalizedDist < 1.0) {
-              // Create expanding ring pattern
-              float ringPattern = sin(normalizedDist * 20.0 - time * 5.0) * 0.5 + 0.5;
-              float falloff = 1.0 - smoothstep(0.7, 1.0, normalizedDist);
+            // Create rectangular bounds matching wake geometry dimensions
+            float halfWidth = foamWidth * 0.5;
+            float halfLength = foamLength * 0.5;
 
-              // Add foam texture
-              vec2 foamCoord = worldPos * 0.1 + vec2(time * 0.2);
-              float foam = foamPattern(foamCoord, foamIntensity);
+            // Check if we're within the rectangular wake area
+            if(abs(relativePos.x) < halfWidth && abs(relativePos.y) < halfLength) {
+                // Calculate distance from center as percentage
+                vec2 normalizedPos = relativePos / vec2(halfWidth, halfLength);
 
-              wakeEffect = max(wakeEffect, ringPattern * falloff * foam);
+                // Create wake shape - stronger at center, fading towards edges
+                float centerFalloff = 1.0 - length(normalizedPos);
+                centerFalloff = smoothstep(0.0, 1.0, centerFalloff);
+
+                // Create wake pattern with boat-like shape (stronger at the back)
+                float lengthFactor = (normalizedPos.y + 1.0) * 0.5; // 0 at front, 1 at back
+                float wakeShape = centerFalloff * (0.3 + 0.7 * lengthFactor);
+
+                // Multi-scale foam texture
+                vec2 foamCoord1 = worldPos * 0.05 + vec2(time * 0.1, time * 0.05);
+                vec2 foamCoord2 = worldPos * 0.1 + vec2(-time * 0.15, time * 0.1);
+                vec2 foamCoord3 = worldPos * 0.2 + vec2(time * 0.08, -time * 0.12);
+
+                float foam1 = foamPattern(foamCoord1, 1.0);
+                float foam2 = foamPattern(foamCoord2, 0.8);
+                float foam3 = foamPattern(foamCoord3, 0.6);
+
+                // Layer the foam effects
+                float combinedFoam = foam1 * 0.6 + foam2 * 0.3 + foam3 * 0.1;
+
+                // Add wave-like disturbance pattern
+                float wavePhase = (length(normalizedPos) * 0.3) - (time * 1.5);
+                float waveRipple = (sin(wavePhase) * 0.5 + 0.5) * 0.3 + 0.7;
+
+                // Apply foam threshold
+                float foamThreshold = 0.4 + 0.2 * wakeShape;
+                float foamMask = smoothstep(foamThreshold - 0.1, foamThreshold + 0.1, combinedFoam);
+
+                // Final wake effect
+                float wakeEffect = wakeShape * foamMask * foamIntensity * waveRipple;
+
+                // Add extra bright spots for realism
+                vec2 bubbleCoord = worldPos * 0.3 + vec2(time * 0.2, -time * 0.18);
+                float bubbles = foamPattern(bubbleCoord, 1.5);
+                float bubbleMask = smoothstep(0.7, 0.9, bubbles) * wakeShape;
+                wakeEffect += bubbleMask * 0.3;
+
+                return clamp(wakeEffect, 0.0, 1.0);
             }
-          }
 
-          // Trail wake effects
-          for(int i = 0; i < ${this.maxTrailLength}; i++) {
-            if(i >= trailLength) break;
-
-            vec3 trailPoint = wakeTrail[i];
-            float trailDist = length(worldPos - trailPoint.xz);
-            float trailAge = float(i) / float(trailLength);
-            float trailRadius = hoverRadius * 0.6 * (1.0 - trailAge * 0.7);
-
-            if(trailDist < trailRadius) {
-              float trailNormDist = trailDist / trailRadius;
-              float trailIntensity = (1.0 - trailAge) * 0.6;
-
-              // Create wake turbulence
-              vec2 trailFoamCoord = worldPos * 0.05 + vec2(time * 0.1, -time * 0.1);
-              float trailFoam = foamPattern(trailFoamCoord, trailIntensity);
-
-              float trailFalloff = 1.0 - smoothstep(0.5, 1.0, trailNormDist);
-              wakeEffect = max(wakeEffect, trailFoam * trailFalloff * trailIntensity);
-            }
-          }
-
-          return clamp(wakeEffect, 0.0, 1.0);
+            return 0.0;
         }
 
         vec4 getNoise(vec2 uv) {
@@ -369,8 +400,8 @@ export const useWater = class WaterWaves {
           vec3 scatter = max(0.0, dot(surfaceNormal, eyeDirection)) * waterColor;
           vec3 albedo = mix((sunColor * diffuseLight * 0.3 + scatter) * getShadowMask(), (vec3(0.1) + reflectionSample * 0.9 + reflectionSample * specularLight), reflectance);
 
-          // Calculate wake/foam effect
-          float wakeEffect = wakePattern(vWorldPos.xz);
+          // Calculate static wake/foam effect
+          float wakeEffect = staticWakePattern(vWorldPos.xz);
 
           // Create foam color with slight blue tint
           vec3 foamColor = vec3(0.95, 0.98, 1.0);
@@ -392,108 +423,55 @@ export const useWater = class WaterWaves {
 
       // Store reference to shader uniforms for updates
       this.foamUniforms = {
-        hoverPoint: shader.uniforms.hoverPoint,
-        isHovering: shader.uniforms.isHovering,
-        hoverRadius: shader.uniforms.hoverRadius,
+        staticFoamPoint: shader.uniforms.staticFoamPoint,
+        foamEnabled: shader.uniforms.foamEnabled,
+        foamWidth: shader.uniforms.foamWidth,
+        foamLength: shader.uniforms.foamLength,
         foamIntensity: shader.uniforms.foamIntensity,
-        wakeTrail: shader.uniforms.wakeTrail,
-        trailLength: shader.uniforms.trailLength,
       };
     };
   }
 
-  updateWakeTrail(newPoint) {
-    // Add new point to the beginning of the trail
-    this.wakeTrail.unshift(newPoint.clone());
+  // Method to set static foam position and dimensions
+  setStaticFoam(position, width, length) {
+    this.staticFoamPoint.copy(position);
+    this.foamWidth = width;
+    this.foamLength = length;
 
-    // Keep only the most recent points
-    if (this.wakeTrail.length > this.maxTrailLength) {
-      this.wakeTrail.pop();
-    }
-
-    // Update shader uniforms
     if (this.foamUniforms) {
-      for (let i = 0; i < this.maxTrailLength; i++) {
-        if (i < this.wakeTrail.length) {
-          this.foamUniforms.wakeTrail.value[i].copy(this.wakeTrail[i]);
-        } else {
-          this.foamUniforms.wakeTrail.value[i].set(0, 0, 0);
-        }
-      }
-      this.foamUniforms.trailLength.value = this.wakeTrail.length;
+      this.foamUniforms.staticFoamPoint.value.copy(this.staticFoamPoint);
+      this.foamUniforms.foamWidth.value = this.foamWidth;
+      this.foamUniforms.foamLength.value = this.foamLength;
     }
   }
 
-  setupMouseEvents(camera, renderer) {
-    const canvas = renderer.domElement;
-    let lastUpdateTime = 0;
-    const trailUpdateInterval = 50; // Update trail every 50ms
-
-    const onMouseMove = (event) => {
-      // Calculate mouse position in normalized device coordinates
-      const rect = canvas.getBoundingClientRect();
-      this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-      this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-
-      // Update raycaster
-      this.raycaster.setFromCamera(this.mouse, camera);
-
-      // Check intersection with water
-      const intersects = this.raycaster.intersectObject(this.water);
-
-      if (intersects.length > 0) {
-        const intersect = intersects[0];
-        this.hoverPoint.copy(intersect.point);
-        this.isHovering = true;
-
-        // Update wake trail
-        const currentTime = Date.now();
-        if (currentTime - lastUpdateTime > trailUpdateInterval) {
-          this.updateWakeTrail(this.hoverPoint);
-          lastUpdateTime = currentTime;
-        }
-
-        // Update shader uniforms if available
-        if (this.foamUniforms) {
-          this.foamUniforms.hoverPoint.value.copy(this.hoverPoint);
-          this.foamUniforms.isHovering.value = 1.0;
-        }
-
-        canvas.style.cursor = "pointer";
-      } else {
-        this.isHovering = false;
-        if (this.foamUniforms) {
-          this.foamUniforms.isHovering.value = 0.0;
-        }
-        canvas.style.cursor = "default";
-      }
-    };
-
-    const onMouseLeave = () => {
-      this.isHovering = false;
-      if (this.foamUniforms) {
-        this.foamUniforms.isHovering.value = 0.0;
-      }
-      canvas.style.cursor = "default";
-    };
-
-    canvas.addEventListener("mousemove", onMouseMove);
-    canvas.addEventListener("mouseleave", onMouseLeave);
-
-    // Store event listeners for cleanup
-    this.mouseEvents = {
-      mousemove: onMouseMove,
-      mouseleave: onMouseLeave,
-    };
-  }
-
-  setHoverRadius(radius) {
-    this.hoverRadius = radius;
+  // Method to update foam position (useful for moving boats)
+  updateFoamPosition(x, y, z) {
+    this.staticFoamPoint.set(x, y, z);
     if (this.foamUniforms) {
-      this.foamUniforms.hoverRadius.value = radius;
+      this.foamUniforms.staticFoamPoint.value.copy(this.staticFoamPoint);
     }
   }
 
+  // Method to update foam dimensions
+  updateFoamDimensions(width, length) {
+    this.foamWidth = width;
+    this.foamLength = length;
+    if (this.foamUniforms) {
+      this.foamUniforms.foamWidth.value = width;
+      this.foamUniforms.foamLength.value = length;
+    }
+  }
+
+  // Method to enable/disable foam
+  setFoamEnabled(enabled) {
+    this.foamEnabled = enabled;
+    if (this.foamUniforms) {
+      this.foamUniforms.foamEnabled.value = enabled ? 1.0 : 0.0;
+    }
+  }
+
+  // Method to set foam intensity
   setFoamIntensity(intensity) {
     this.foamIntensity = intensity;
     if (this.foamUniforms) {
@@ -501,14 +479,14 @@ export const useWater = class WaterWaves {
     }
   }
 
+  // Method to sync with wake instance
+  syncWithWake() {
+    this.updateFoamFromWake();
+  }
+
+  // Remove mouse event setup methods since we're using static foam
   cleanup() {
-    if (this.mouseEvents) {
-      const canvas = document.querySelector(".canvas");
-      if (canvas) {
-        canvas.removeEventListener("mousemove", this.mouseEvents.mousemove);
-        canvas.removeEventListener("mouseleave", this.mouseEvents.mouseleave);
-      }
-    }
+    // No mouse events to clean up
   }
 
   getWater() {
