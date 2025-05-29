@@ -1,4 +1,4 @@
-// Enhanced useWater.js with hover effect
+// Enhanced useWater.js with foam/wake effect
 import * as THREE from "three";
 import { Water } from "three/examples/jsm/objects/Water";
 
@@ -12,6 +12,9 @@ export const useWater = class WaterWaves {
     this.hoverPoint = new THREE.Vector3(0, 0, 0);
     this.isHovering = false;
     this.hoverRadius = 200.0;
+    this.foamIntensity = 1.0;
+    this.wakeTrail = []; // Store wake trail points
+    this.maxTrailLength = 20;
   }
 
   createWater() {
@@ -88,18 +91,23 @@ export const useWater = class WaterWaves {
     });
 
     this.water.rotation.x = -Math.PI / 2;
-    this.setupHoverShader();
+    this.setupFoamShader();
   }
 
-  setupHoverShader() {
+  setupFoamShader() {
     this.water.material.onBeforeCompile = (shader) => {
       shader.uniforms.offsetX = { value: 0 };
       shader.uniforms.offsetZ = { value: 0 };
 
-      // Hover effect uniforms
+      // Foam/wake effect uniforms
       shader.uniforms.hoverPoint = { value: this.hoverPoint };
       shader.uniforms.isHovering = { value: 0.0 };
       shader.uniforms.hoverRadius = { value: this.hoverRadius };
+      shader.uniforms.foamIntensity = { value: this.foamIntensity };
+      shader.uniforms.wakeTrail = {
+        value: new Array(this.maxTrailLength).fill(new THREE.Vector3()),
+      };
+      shader.uniforms.trailLength = { value: 0 };
 
       shader.uniforms.waveA = {
         value: [
@@ -126,7 +134,7 @@ export const useWater = class WaterWaves {
         ],
       };
 
-      // Enhanced vertex shader with hover detection
+      // Enhanced vertex shader
       shader.vertexShader = `
         uniform mat4 textureMatrix;
         uniform float time;
@@ -178,7 +186,6 @@ export const useWater = class WaterWaves {
           p += GerstnerWave(waveB, gridPoint);
           p += GerstnerWave(waveC, gridPoint);
 
-          // Pass world position for hover detection
           vWorldPos = (modelMatrix * vec4(p, 1.0)).xyz;
 
           gl_Position = projectionMatrix * modelViewMatrix * vec4( p.x, p.y, p.z, 1.0);
@@ -190,7 +197,7 @@ export const useWater = class WaterWaves {
           #include <shadowmap_vertex>
         }`;
 
-      // Enhanced fragment shader with hover effect
+      // Enhanced fragment shader with foam/wake effect
       shader.fragmentShader = `
         uniform sampler2D mirrorSampler;
         uniform float alpha;
@@ -205,32 +212,128 @@ export const useWater = class WaterWaves {
         uniform float offsetX;
         uniform float offsetZ;
 
-        // Hover effect uniforms
+        // Foam/wake effect uniforms
         uniform vec3 hoverPoint;
         uniform float isHovering;
         uniform float hoverRadius;
+        uniform float foamIntensity;
+        uniform vec3 wakeTrail[${this.maxTrailLength}];
+        uniform int trailLength;
 
         varying vec4 mirrorCoord;
         varying vec4 worldPosition;
         varying vec3 vWorldPos;
 
-        vec4 getNoise( vec2 uv ) {
-          vec2 uv0 = ( uv / 103.0 ) + vec2(time / 17.0, time / 29.0);
-          vec2 uv1 = uv / 107.0-vec2( time / -19.0, time / 31.0 );
-          vec2 uv2 = uv / vec2( 8907.0, 9803.0 ) + vec2( time / 101.0, time / 97.0 );
-          vec2 uv3 = uv / vec2( 1091.0, 1027.0 ) - vec2( time / 109.0, time / -113.0 );
-          vec4 noise = texture2D( normalSampler, uv0 ) +
-              texture2D( normalSampler, uv1 ) +
-              texture2D( normalSampler, uv2 ) +
-              texture2D( normalSampler, uv3 );
+        // Hash functions for noise generation (from the reference shader)
+        const vec4 cHashA4 = vec4(0., 1., 57., 58.);
+        const vec3 cHashA3 = vec3(1., 57., 113.);
+        const float cHashM = 43758.54;
+
+        vec4 Hashv4f(float p) {
+          return fract(sin(p + cHashA4) * cHashM);
+        }
+
+        // 2D noise function
+        float Noisefv2(vec2 p) {
+          vec2 i = floor(p);
+          vec2 f = fract(p);
+          f = f * f * (3. - 2. * f);
+          vec4 t = Hashv4f(dot(i, cHashA3.xy));
+          return mix(mix(t.x, t.y, f.x), mix(t.z, t.w, f.x), f.y);
+        }
+
+        // Fractional Brownian Motion for foam texture
+        float Fbm2(vec2 p) {
+          float f = 0.0;
+          float a = 0.5;
+          for(int i = 0; i < 5; i++) {
+            f += a * Noisefv2(p);
+            p *= 2.0;
+            a *= 0.5;
+          }
+          return f;
+        }
+
+        // Create foam pattern similar to reference shader
+        float foamPattern(vec2 p, float intensity) {
+          vec2 q = p * 8.0 + vec2(time * 0.3, time * 0.2);
+          float foam = Fbm2(q);
+
+          // Add turbulence
+          vec2 r = p * 16.0 + vec2(time * 0.1, -time * 0.15);
+          foam += 0.3 * Fbm2(r);
+
+          // Create bubbling effect
+          vec2 s = p * 32.0 + vec2(-time * 0.4, time * 0.25);
+          foam += 0.15 * Fbm2(s);
+
+          return clamp(foam * intensity, 0.0, 1.0);
+        }
+
+        // Wake pattern function
+        float wakePattern(vec2 worldPos) {
+          float wakeEffect = 0.0;
+
+          // Current hover point wake
+          if(isHovering > 0.5) {
+            float dist = length(worldPos - hoverPoint.xz);
+            float normalizedDist = dist / hoverRadius;
+
+            if(normalizedDist < 1.0) {
+              // Create expanding ring pattern
+              float ringPattern = sin(normalizedDist * 20.0 - time * 5.0) * 0.5 + 0.5;
+              float falloff = 1.0 - smoothstep(0.7, 1.0, normalizedDist);
+
+              // Add foam texture
+              vec2 foamCoord = worldPos * 0.1 + vec2(time * 0.2);
+              float foam = foamPattern(foamCoord, foamIntensity);
+
+              wakeEffect = max(wakeEffect, ringPattern * falloff * foam);
+            }
+          }
+
+          // Trail wake effects
+          for(int i = 0; i < ${this.maxTrailLength}; i++) {
+            if(i >= trailLength) break;
+
+            vec3 trailPoint = wakeTrail[i];
+            float trailDist = length(worldPos - trailPoint.xz);
+            float trailAge = float(i) / float(trailLength);
+            float trailRadius = hoverRadius * 0.6 * (1.0 - trailAge * 0.7);
+
+            if(trailDist < trailRadius) {
+              float trailNormDist = trailDist / trailRadius;
+              float trailIntensity = (1.0 - trailAge) * 0.6;
+
+              // Create wake turbulence
+              vec2 trailFoamCoord = worldPos * 0.05 + vec2(time * 0.1, -time * 0.1);
+              float trailFoam = foamPattern(trailFoamCoord, trailIntensity);
+
+              float trailFalloff = 1.0 - smoothstep(0.5, 1.0, trailNormDist);
+              wakeEffect = max(wakeEffect, trailFoam * trailFalloff * trailIntensity);
+            }
+          }
+
+          return clamp(wakeEffect, 0.0, 1.0);
+        }
+
+        vec4 getNoise(vec2 uv) {
+          vec2 uv0 = (uv / 103.0) + vec2(time / 17.0, time / 29.0);
+          vec2 uv1 = uv / 107.0 - vec2(time / -19.0, time / 31.0);
+          vec2 uv2 = uv / vec2(8907.0, 9803.0) + vec2(time / 101.0, time / 97.0);
+          vec2 uv3 = uv / vec2(1091.0, 1027.0) - vec2(time / 109.0, time / -113.0);
+          vec4 noise = texture2D(normalSampler, uv0) +
+              texture2D(normalSampler, uv1) +
+              texture2D(normalSampler, uv2) +
+              texture2D(normalSampler, uv3);
           return noise * 0.5 - 1.0;
         }
 
-        void sunLight( const vec3 surfaceNormal, const vec3 eyeDirection, float shiny, float spec, float diffuse, inout vec3 diffuseColor, inout vec3 specularColor ) {
-          vec3 reflection = normalize( reflect( -sunDirection, surfaceNormal ) );
-          float direction = max( 0.0, dot( eyeDirection, reflection ) );
-          specularColor += pow( direction, shiny ) * sunColor * spec;
-          diffuseColor += max( dot( sunDirection, surfaceNormal ), 0.0 ) * sunColor * diffuse;
+        void sunLight(const vec3 surfaceNormal, const vec3 eyeDirection, float shiny, float spec, float diffuse, inout vec3 diffuseColor, inout vec3 specularColor) {
+          vec3 reflection = normalize(reflect(-sunDirection, surfaceNormal));
+          float direction = max(0.0, dot(eyeDirection, reflection));
+          specularColor += pow(direction, shiny) * sunColor * spec;
+          diffuseColor += max(dot(sunDirection, surfaceNormal), 0.0) * sunColor * diffuse;
         }
 
         #include <common>
@@ -245,43 +348,41 @@ export const useWater = class WaterWaves {
         void main() {
           #include <logdepthbuf_fragment>
 
-          vec4 noise = getNoise( (worldPosition.xz) + vec2(offsetX/12.25,offsetZ/12.25) * size );
-          vec3 surfaceNormal = normalize( noise.xzy * vec3( 1.5, 1.0, 1.5 ) );
+          vec4 noise = getNoise((worldPosition.xz) + vec2(offsetX/12.25, offsetZ/12.25) * size);
+          vec3 surfaceNormal = normalize(noise.xzy * vec3(1.5, 1.0, 1.5));
 
           vec3 diffuseLight = vec3(0.0);
           vec3 specularLight = vec3(0.0);
 
-          vec3 worldToEye = eye-worldPosition.xyz;
-          vec3 eyeDirection = normalize( worldToEye );
-          sunLight( surfaceNormal, eyeDirection, 100.0, 2.0, 0.5, diffuseLight, specularLight );
+          vec3 worldToEye = eye - worldPosition.xyz;
+          vec3 eyeDirection = normalize(worldToEye);
+          sunLight(surfaceNormal, eyeDirection, 100.0, 2.0, 0.5, diffuseLight, specularLight);
 
           float distance = length(worldToEye);
 
-          vec2 distortion = surfaceNormal.xz * ( 0.001 + 1.0 / distance ) * distortionScale;
-          vec3 reflectionSample = vec3( texture2D( mirrorSampler, mirrorCoord.xy / mirrorCoord.w + distortion ) );
+          vec2 distortion = surfaceNormal.xz * (0.001 + 1.0 / distance) * distortionScale;
+          vec3 reflectionSample = vec3(texture2D(mirrorSampler, mirrorCoord.xy / mirrorCoord.w + distortion));
 
-          float theta = max( dot( eyeDirection, surfaceNormal ), 0.0 );
+          float theta = max(dot(eyeDirection, surfaceNormal), 0.0);
           float rf0 = 0.3;
-          float reflectance = rf0 + ( 1.0 - rf0 ) * pow( ( 1.0 - theta ), 5.0 );
-          vec3 scatter = max( 0.0, dot( surfaceNormal, eyeDirection ) ) * waterColor;
-          vec3 albedo = mix( ( sunColor * diffuseLight * 0.3 + scatter ) * getShadowMask(), ( vec3( 0.1 ) + reflectionSample * 0.9 + reflectionSample * specularLight ), reflectance);
+          float reflectance = rf0 + (1.0 - rf0) * pow((1.0 - theta), 5.0);
+          vec3 scatter = max(0.0, dot(surfaceNormal, eyeDirection)) * waterColor;
+          vec3 albedo = mix((sunColor * diffuseLight * 0.3 + scatter) * getShadowMask(), (vec3(0.1) + reflectionSample * 0.9 + reflectionSample * specularLight), reflectance);
 
-          // Add hover effect
-          float hoverEffect = 0.0;
-          if (isHovering > 0.5) {
-            float hoverDist = length(vWorldPos.xz - hoverPoint.xz);
-            float normalizedDist = hoverDist / hoverRadius;
-            // Create smooth circular falloff
-            hoverEffect = smoothstep(1.0, 0.0, normalizedDist);
-            // Make it more pronounced
-            hoverEffect = pow(hoverEffect, 2.0);
-          }
+          // Calculate wake/foam effect
+          float wakeEffect = wakePattern(vWorldPos.xz);
 
-          // Blend with white based on hover effect
-          vec3 hoverColor = vec3(1.0, 1.0, 1.0);
-          vec3 finalColor = mix(albedo, hoverColor, hoverEffect * 0.8);
+          // Create foam color with slight blue tint
+          vec3 foamColor = vec3(0.95, 0.98, 1.0);
 
-          gl_FragColor = vec4( finalColor, alpha );
+          // Enhanced foam effect with edge highlighting
+          float foamMask = pow(wakeEffect, 0.8);
+          vec3 finalColor = mix(albedo, foamColor, foamMask);
+
+          // Add extra brightness to foam areas
+          finalColor += foamColor * wakeEffect * 0.3;
+
+          gl_FragColor = vec4(clamp(finalColor, 0.0, 1.0), alpha);
 
           #include <tonemapping_fragment>
           #include <fog_fragment>
@@ -290,16 +391,43 @@ export const useWater = class WaterWaves {
       shader.uniforms.size.value = 10.0;
 
       // Store reference to shader uniforms for updates
-      this.hoverUniforms = {
+      this.foamUniforms = {
         hoverPoint: shader.uniforms.hoverPoint,
         isHovering: shader.uniforms.isHovering,
         hoverRadius: shader.uniforms.hoverRadius,
+        foamIntensity: shader.uniforms.foamIntensity,
+        wakeTrail: shader.uniforms.wakeTrail,
+        trailLength: shader.uniforms.trailLength,
       };
     };
   }
 
+  updateWakeTrail(newPoint) {
+    // Add new point to the beginning of the trail
+    this.wakeTrail.unshift(newPoint.clone());
+
+    // Keep only the most recent points
+    if (this.wakeTrail.length > this.maxTrailLength) {
+      this.wakeTrail.pop();
+    }
+
+    // Update shader uniforms
+    if (this.foamUniforms) {
+      for (let i = 0; i < this.maxTrailLength; i++) {
+        if (i < this.wakeTrail.length) {
+          this.foamUniforms.wakeTrail.value[i].copy(this.wakeTrail[i]);
+        } else {
+          this.foamUniforms.wakeTrail.value[i].set(0, 0, 0);
+        }
+      }
+      this.foamUniforms.trailLength.value = this.wakeTrail.length;
+    }
+  }
+
   setupMouseEvents(camera, renderer) {
     const canvas = renderer.domElement;
+    let lastUpdateTime = 0;
+    const trailUpdateInterval = 50; // Update trail every 50ms
 
     const onMouseMove = (event) => {
       // Calculate mouse position in normalized device coordinates
@@ -318,17 +446,24 @@ export const useWater = class WaterWaves {
         this.hoverPoint.copy(intersect.point);
         this.isHovering = true;
 
+        // Update wake trail
+        const currentTime = Date.now();
+        if (currentTime - lastUpdateTime > trailUpdateInterval) {
+          this.updateWakeTrail(this.hoverPoint);
+          lastUpdateTime = currentTime;
+        }
+
         // Update shader uniforms if available
-        if (this.hoverUniforms) {
-          this.hoverUniforms.hoverPoint.value.copy(this.hoverPoint);
-          this.hoverUniforms.isHovering.value = 1.0;
+        if (this.foamUniforms) {
+          this.foamUniforms.hoverPoint.value.copy(this.hoverPoint);
+          this.foamUniforms.isHovering.value = 1.0;
         }
 
         canvas.style.cursor = "pointer";
       } else {
         this.isHovering = false;
-        if (this.hoverUniforms) {
-          this.hoverUniforms.isHovering.value = 0.0;
+        if (this.foamUniforms) {
+          this.foamUniforms.isHovering.value = 0.0;
         }
         canvas.style.cursor = "default";
       }
@@ -336,8 +471,8 @@ export const useWater = class WaterWaves {
 
     const onMouseLeave = () => {
       this.isHovering = false;
-      if (this.hoverUniforms) {
-        this.hoverUniforms.isHovering.value = 0.0;
+      if (this.foamUniforms) {
+        this.foamUniforms.isHovering.value = 0.0;
       }
       canvas.style.cursor = "default";
     };
@@ -354,8 +489,15 @@ export const useWater = class WaterWaves {
 
   setHoverRadius(radius) {
     this.hoverRadius = radius;
-    if (this.hoverUniforms) {
-      this.hoverUniforms.hoverRadius.value = radius;
+    if (this.foamUniforms) {
+      this.foamUniforms.hoverRadius.value = radius;
+    }
+  }
+
+  setFoamIntensity(intensity) {
+    this.foamIntensity = intensity;
+    if (this.foamUniforms) {
+      this.foamUniforms.foamIntensity.value = intensity;
     }
   }
 
