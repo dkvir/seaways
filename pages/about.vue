@@ -40,6 +40,7 @@ const waves = [
 onMounted(() => {
   init();
   animate();
+
   // Modified to use the returned object from useGui
   const { addWakeControls } = useGui(
     waterClass.getWater(),
@@ -51,6 +52,13 @@ onMounted(() => {
   // Pass the wake effect instance to add wake controls after it's initialized
   if (wakeEffect) {
     addWakeControls(wakeEffect);
+  }
+});
+
+onUnmounted(() => {
+  // Cleanup mouse events
+  if (waterClass) {
+    waterClass.cleanup();
   }
 });
 
@@ -96,9 +104,13 @@ function init() {
   world = new CANNON.World();
   world.gravity.set(0, -9.82, 0);
 
+  // Create water with enhanced hover functionality
   waterClass = new useWater(scene, waves);
   waterClass.createWater();
   scene.add(waterClass.getWater());
+
+  // Setup mouse events for hover effect
+  waterClass.setupMouseEvents(camera, renderer);
 
   modelClass = new useModel(
     scene,
