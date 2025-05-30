@@ -34,7 +34,7 @@ export const useGui = (
       water.material.uniforms.waveA.value[2] = v;
     });
   waveAFolder
-    .add(waves[0], "wavelength", 1, 100)
+    .add(waves[0], "wavelength", 1, 500)
     .name("Wavelength")
     .onChange(function (v) {
       water.material.uniforms.waveA.value[3] = v;
@@ -57,7 +57,7 @@ export const useGui = (
       water.material.uniforms.waveB.value[2] = v;
     });
   waveBFolder
-    .add(waves[1], "wavelength", 1, 100)
+    .add(waves[1], "wavelength", 1, 500)
     .name("Wavelength")
     .onChange(function (v) {
       water.material.uniforms.waveB.value[3] = v;
@@ -80,7 +80,7 @@ export const useGui = (
       water.material.uniforms.waveC.value[2] = v;
     });
   waveCFolder
-    .add(waves[2], "wavelength", 1, 100)
+    .add(waves[2], "wavelength", 1, 500)
     .name("Wavelength")
     .onChange(function (v) {
       water.material.uniforms.waveC.value[3] = v;
