@@ -1,4 +1,4 @@
-// Enhanced useWater.js with static foam/wake effect positioned at wake geometry
+// Enhanced useWater.js with combined wake/foam effect shader
 import * as THREE from "three";
 import { Water } from "three/examples/jsm/objects/Water";
 
@@ -7,14 +7,49 @@ export const useWater = class WaterWaves {
     this.water = null;
     this.scene = scene;
     this.waves = waves;
-    this.wakeInstance = wakeInstance; // Reference to wake instance
+    this.wakeInstance = wakeInstance;
 
-    // Static foam properties - will be set from wake geometry
-    this.staticFoamPoint = new THREE.Vector3(-6.5, 4, -105);
-    this.foamWidth = 90; // Default, will be updated from wake
-    this.foamLength = 400; // Default, will be updated from wake
-    this.foamIntensity = 1.0;
-    this.foamEnabled = true;
+    // Wake properties from useWake
+    this.wakeProperties = {
+      width: 90,
+      length: 400,
+      heightOffset: 0.05,
+      positionX: -6.5,
+      positionY: 4,
+      positionZ: -105,
+      opacity: 1.0,
+    };
+
+    // Wave animation properties from useWake
+    this.waveProperties = {
+      waveFreq: 0.13,
+      waveAmp: 1.0,
+      waveRoughness: 8.0,
+      timeScale: 1.0,
+      octaves: 6,
+      persistance: 0.1,
+      lacunarity: 1.5,
+    };
+
+    // Foam shader parameters from useWake
+    this.foamProperties = {
+      voronoiSmoothnessA: 0.3,
+      voronoiSmoothnessB: 0.4,
+      voronoiSmoothnessC: 0.5,
+      voronoiSpeedA: 0.3,
+      voronoiSpeedB: 0.2,
+      voronoiSpeedC: 0.4,
+      voronoiScaleA: 150.0,
+      voronoiScaleB: 100.0,
+      voronoiScaleC: 50.0,
+      voronoiPower: 0.7,
+      voronoiColor: new THREE.Color(1, 1, 1),
+      scale: 0.01,
+      foamThreshold: 0.4,
+      foamIntensity: 1.2,
+    };
+
+    this.foamUniforms = null;
   }
 
   createWater() {
@@ -91,44 +126,80 @@ export const useWater = class WaterWaves {
     });
 
     this.water.rotation.x = -Math.PI / 2;
-    this.setupFoamShader();
-
-    // Initialize foam position from wake instance if available
-    this.updateFoamFromWake();
+    this.setupEnhancedWakeShader();
   }
 
-  updateFoamFromWake() {
-    if (this.wakeInstance) {
-      const wakeProps = this.wakeInstance.getWakeProperties();
-      this.staticFoamPoint.set(
-        wakeProps.positionX,
-        wakeProps.positionY,
-        wakeProps.positionZ
-      );
-      this.foamWidth = wakeProps.width;
-      this.foamLength = wakeProps.length;
-
-      // Update shader uniforms if they exist
-      if (this.foamUniforms) {
-        this.foamUniforms.staticFoamPoint.value.copy(this.staticFoamPoint);
-        this.foamUniforms.foamWidth.value = this.foamWidth;
-        this.foamUniforms.foamLength.value = this.foamLength;
-      }
-    }
-  }
-
-  setupFoamShader() {
+  setupEnhancedWakeShader() {
     this.water.material.onBeforeCompile = (shader) => {
+      // Original water uniforms
       shader.uniforms.offsetX = { value: 0 };
       shader.uniforms.offsetZ = { value: 0 };
 
-      // Static foam/wake effect uniforms
-      shader.uniforms.staticFoamPoint = { value: this.staticFoamPoint };
-      shader.uniforms.foamEnabled = { value: this.foamEnabled ? 1.0 : 0.0 };
-      shader.uniforms.foamWidth = { value: this.foamWidth };
-      shader.uniforms.foamLength = { value: this.foamLength };
-      shader.uniforms.foamIntensity = { value: this.foamIntensity };
+      // Wake position and dimensions uniforms
+      shader.uniforms.wakePositionX = { value: this.wakeProperties.positionX };
+      shader.uniforms.wakePositionZ = { value: this.wakeProperties.positionZ };
+      shader.uniforms.wakeWidth = { value: this.wakeProperties.width };
+      shader.uniforms.wakeLength = { value: this.wakeProperties.length };
+      shader.uniforms.wakeOpacity = { value: this.wakeProperties.opacity };
 
+      // Enhanced foam shader uniforms from useWake
+      shader.uniforms.voronoiSmoothnessA = {
+        value: this.foamProperties.voronoiSmoothnessA,
+      };
+      shader.uniforms.voronoiSmoothnessB = {
+        value: this.foamProperties.voronoiSmoothnessB,
+      };
+      shader.uniforms.voronoiSmoothnessC = {
+        value: this.foamProperties.voronoiSmoothnessC,
+      };
+      shader.uniforms.voronoiSpeedA = {
+        value: this.foamProperties.voronoiSpeedA,
+      };
+      shader.uniforms.voronoiSpeedB = {
+        value: this.foamProperties.voronoiSpeedB,
+      };
+      shader.uniforms.voronoiSpeedC = {
+        value: this.foamProperties.voronoiSpeedC,
+      };
+      shader.uniforms.voronoiScaleA = {
+        value: this.foamProperties.voronoiScaleA,
+      };
+      shader.uniforms.voronoiScaleB = {
+        value: this.foamProperties.voronoiScaleB,
+      };
+      shader.uniforms.voronoiScaleC = {
+        value: this.foamProperties.voronoiScaleC,
+      };
+      shader.uniforms.voronoiPower = {
+        value: this.foamProperties.voronoiPower,
+      };
+      shader.uniforms.voronoiColor = {
+        value: this.foamProperties.voronoiColor,
+      };
+      shader.uniforms.foamScale = { value: this.foamProperties.scale };
+      shader.uniforms.foamThreshold = {
+        value: this.foamProperties.foamThreshold,
+      };
+      shader.uniforms.foamIntensity = {
+        value: this.foamProperties.foamIntensity,
+      };
+
+      // Wave animation uniforms from useWake
+      shader.uniforms.wakeWaveFreq = { value: this.waveProperties.waveFreq };
+      shader.uniforms.wakeWaveAmp = { value: this.waveProperties.waveAmp };
+      shader.uniforms.wakeWaveRoughness = {
+        value: this.waveProperties.waveRoughness,
+      };
+      shader.uniforms.wakeTimeScale = { value: this.waveProperties.timeScale };
+      shader.uniforms.wakeOctaves = { value: this.waveProperties.octaves };
+      shader.uniforms.wakePersistance = {
+        value: this.waveProperties.persistance,
+      };
+      shader.uniforms.wakeLacunarity = {
+        value: this.waveProperties.lacunarity,
+      };
+
+      // Original Gerstner wave uniforms
       shader.uniforms.waveA = {
         value: [
           Math.sin((this.waves[0].direction * Math.PI) / 180),
@@ -154,7 +225,7 @@ export const useWater = class WaterWaves {
         ],
       };
 
-      // Enhanced vertex shader
+      // Enhanced vertex shader (same as original with wave calculations)
       shader.vertexShader = `
         uniform mat4 textureMatrix;
         uniform float time;
@@ -217,7 +288,7 @@ export const useWater = class WaterWaves {
           #include <shadowmap_vertex>
         }`;
 
-      // Enhanced fragment shader with static foam/wake effect
+      // Enhanced fragment shader combining original water with wake shader
       shader.fragmentShader = `
         uniform sampler2D mirrorSampler;
         uniform float alpha;
@@ -232,122 +303,218 @@ export const useWater = class WaterWaves {
         uniform float offsetX;
         uniform float offsetZ;
 
-        // Static foam/wake effect uniforms
-        uniform vec3 staticFoamPoint;
-        uniform float foamEnabled;
-        uniform float foamWidth;
-        uniform float foamLength;
+        // Wake properties
+        uniform float wakePositionX;
+        uniform float wakePositionZ;
+        uniform float wakeWidth;
+        uniform float wakeLength;
+        uniform float wakeOpacity;
+
+        // Enhanced foam properties from useWake
+        uniform float voronoiSmoothnessA;
+        uniform float voronoiSmoothnessB;
+        uniform float voronoiSmoothnessC;
+        uniform float voronoiSpeedA;
+        uniform float voronoiSpeedB;
+        uniform float voronoiSpeedC;
+        uniform float voronoiScaleA;
+        uniform float voronoiScaleB;
+        uniform float voronoiScaleC;
+        uniform float voronoiPower;
+        uniform vec3 voronoiColor;
+        uniform float foamScale;
+        uniform float foamThreshold;
         uniform float foamIntensity;
+
+        // Wave animation properties from useWake
+        uniform float wakeWaveFreq;
+        uniform float wakeWaveAmp;
+        uniform float wakeWaveRoughness;
+        uniform float wakeTimeScale;
+        uniform float wakeOctaves;
+        uniform float wakePersistance;
+        uniform float wakeLacunarity;
 
         varying vec4 mirrorCoord;
         varying vec4 worldPosition;
         varying vec3 vWorldPos;
 
-        // Hash functions for noise generation
+        const float pi = 3.14159265359;
         const vec4 cHashA4 = vec4(0., 1., 57., 58.);
-        const vec3 cHashA3 = vec3(1., 57., 113.);
         const float cHashM = 43758.54;
 
+        // Hash functions from useWake
         vec4 Hashv4f(float p) {
           return fract(sin(p + cHashA4) * cHashM);
         }
 
-        // 2D noise function
-        float Noisefv2(vec2 p) {
-          vec2 i = floor(p);
-          vec2 f = fract(p);
+        vec2 Noisev2v4(vec4 p) {
+          vec4 i, f, t1, t2;
+          i = floor(p);
+          f = fract(p);
           f = f * f * (3. - 2. * f);
-          vec4 t = Hashv4f(dot(i, cHashA3.xy));
-          return mix(mix(t.x, t.y, f.x), mix(t.z, t.w, f.x), f.y);
+          t1 = Hashv4f(dot(i.xy, vec2(1., 57.)));
+          t2 = Hashv4f(dot(i.zw, vec2(1., 57.)));
+          return vec2(
+            mix(mix(t1.x, t1.y, f.x), mix(t1.z, t1.w, f.x), f.y),
+            mix(mix(t2.x, t2.y, f.z), mix(t2.z, t2.w, f.z), f.w)
+          );
         }
 
-        // Fractional Brownian Motion for foam texture
-        float Fbm2(vec2 p) {
-          float f = 0.0;
-          float a = 0.5;
-          for(int i = 0; i < 5; i++) {
-            f += a * Noisefv2(p);
-            p *= 2.0;
-            a *= 0.5;
+        // Wave height calculation from useWake
+        float WakeWaveHt(vec3 p) {
+          const mat2 qRot = mat2(1.6, -1.2, 1.2, 1.6);
+          vec4 t4, t4o, ta4, v4;
+          vec2 q2, t2, v2;
+          float wFreq, wAmp, pRough, ht;
+
+          wFreq = wakeWaveFreq;
+          wAmp = wakeWaveAmp;
+          pRough = wakeWaveRoughness;
+
+          t4o.xz = time * wakeTimeScale * vec2(1., -1.);
+          q2 = p.xz;
+          ht = 0.;
+
+          for(int j = 0; j < 4; j++) {
+            if(float(j) >= wakeOctaves) break;
+
+            t4 = (t4o.xxzz + vec4(q2, q2)) * wFreq;
+            t2 = Noisev2v4(t4);
+            t4 += 2. * vec4(t2.xx, t2.yy) - 1.;
+            ta4 = abs(sin(t4));
+            v4 = (1. - ta4) * (ta4 + sqrt(1. - ta4 * ta4));
+            v2 = pow(1. - pow(v4.xz * v4.yw, vec2(0.65)), vec2(pRough));
+            ht += (v2.x + v2.y) * wAmp;
+
+            q2 *= qRot;
+            wFreq *= wakeLacunarity;
+            wAmp *= wakePersistance;
+            pRough = 0.8 * pRough + 0.2;
           }
-          return f;
+
+          return ht;
         }
 
-        // Create foam pattern
-        float foamPattern(vec2 p, float intensity) {
-          vec2 q = p * 8.0 + vec2(time * 0.3, time * 0.2);
-          float foam = Fbm2(q);
-
-          // Add turbulence
-          vec2 r = p * 16.0 + vec2(time * 0.1, -time * 0.15);
-          foam += 0.3 * Fbm2(r);
-
-          // Create bubbling effect
-          vec2 s = p * 32.0 + vec2(-time * 0.4, time * 0.25);
-          foam += 0.15 * Fbm2(s);
-
-          return clamp(foam * intensity, 0.0, 1.0);
+        // Improved hash function for Voronoi
+        vec3 Hash(vec2 p) {
+          vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973));
+          p3 += dot(p3, p3.yxz + 33.33);
+          return fract((p3.xxy + p3.yzz) * p3.zyx);
         }
 
-        // Static wake pattern function - rectangular area matching wake geometry
-        float staticWakePattern(vec2 worldPos) {
-            if(foamEnabled < 0.5) return 0.0;
+        // Voronoi functions from useWake
+        float Voronoi(vec2 uv, float smoothness, float speed) {
+          vec2 cell = floor(uv);
+          vec2 fraction = fract(uv);
+          float minDistance = 8.0;
 
-            // Calculate relative position from foam center
-            vec2 relativePos = worldPos - staticFoamPoint.xz;
+          for(int j = -1; j <= 1; j++) {
+            for(int i = -1; i <= 1; i++) {
+              vec2 offset = vec2(float(i), float(j));
+              vec2 neighbor = cell + offset;
+              vec3 hash = Hash(neighbor);
 
-            // Create rectangular bounds matching wake geometry dimensions
-            float halfWidth = foamWidth * 0.5;
-            float halfLength = foamLength * 0.5;
+              vec2 point = 0.5 + 0.3 * sin(time * speed + 6.2831 * hash.xy);
+              vec2 diff = offset + point - fraction;
+              float distance = length(diff);
 
-            // Check if we're within the rectangular wake area
-            if(abs(relativePos.x) < halfWidth && abs(relativePos.y) < halfLength) {
-                // Calculate distance from center as percentage
-                vec2 normalizedPos = relativePos / vec2(halfWidth, halfLength);
-
-                // Create wake shape - stronger at center, fading towards edges
-                float centerFalloff = 1.0 - length(normalizedPos);
-                centerFalloff = smoothstep(0.0, 1.0, centerFalloff);
-
-                // Create wake pattern with boat-like shape (stronger at the back)
-                float lengthFactor = (normalizedPos.y + 1.0) * 0.5; // 0 at front, 1 at back
-                float wakeShape = centerFalloff * (0.3 + 0.7 * lengthFactor);
-
-                // Multi-scale foam texture
-                vec2 foamCoord1 = worldPos * 0.05 + vec2(time * 0.1, time * 0.05);
-                vec2 foamCoord2 = worldPos * 0.1 + vec2(-time * 0.15, time * 0.1);
-                vec2 foamCoord3 = worldPos * 0.2 + vec2(time * 0.08, -time * 0.12);
-
-                float foam1 = foamPattern(foamCoord1, 1.0);
-                float foam2 = foamPattern(foamCoord2, 0.8);
-                float foam3 = foamPattern(foamCoord3, 0.6);
-
-                // Layer the foam effects
-                float combinedFoam = foam1 * 0.6 + foam2 * 0.3 + foam3 * 0.1;
-
-                // Add wave-like disturbance pattern
-                float wavePhase = (length(normalizedPos) * 0.3) - (time * 1.5);
-                float waveRipple = (sin(wavePhase) * 0.5 + 0.5) * 0.3 + 0.7;
-
-                // Apply foam threshold
-                float foamThreshold = 0.4 + 0.2 * wakeShape;
-                float foamMask = smoothstep(foamThreshold - 0.1, foamThreshold + 0.1, combinedFoam);
-
-                // Final wake effect
-                float wakeEffect = wakeShape * foamMask * foamIntensity * waveRipple;
-
-                // Add extra bright spots for realism
-                vec2 bubbleCoord = worldPos * 0.3 + vec2(time * 0.2, -time * 0.18);
-                float bubbles = foamPattern(bubbleCoord, 1.5);
-                float bubbleMask = smoothstep(0.7, 0.9, bubbles) * wakeShape;
-                wakeEffect += bubbleMask * 0.3;
-
-                return clamp(wakeEffect, 0.0, 1.0);
+              float h = max(smoothness - abs(distance - minDistance), 0.0) / smoothness;
+              minDistance = mix(minDistance, distance, h) - h * (1.0 - h) * smoothness * 0.5;
             }
+          }
 
-            return 0.0;
+          return minDistance;
         }
 
+        float VoronoiF1F2(vec2 uv, float smoothness, float speed) {
+          vec2 cell = floor(uv);
+          vec2 fraction = fract(uv);
+
+          float f1 = 8.0;
+          float f2 = 8.0;
+
+          for(int j = -1; j <= 1; j++) {
+            for(int i = -1; i <= 1; i++) {
+              vec2 offset = vec2(float(i), float(j));
+              vec2 neighbor = cell + offset;
+              vec3 hash = Hash(neighbor);
+
+              vec2 point = 0.5 + 0.35 * sin(time * speed + 6.2831 * hash.xy);
+              vec2 diff = offset + point - fraction;
+              float distance = length(diff);
+
+              if(distance < f1) {
+                f2 = f1;
+                f1 = distance;
+              } else if(distance < f2) {
+                f2 = distance;
+              }
+            }
+          }
+
+          return smoothstep(0.0, smoothness, f2 - f1);
+        }
+
+        // Enhanced Foam function from useWake
+        float EnhancedFoam(vec2 p, float waveInfluence) {
+          vec2 distortion = vec2(
+            WakeWaveHt(vec3(p.x * 0.05, 0.0, p.y * 0.05)),
+            WakeWaveHt(vec3(p.x * 0.05 + 100.0, 0.0, p.y * 0.05 + 100.0))
+          ) * 0.05;
+
+          p += distortion;
+
+          float layer1 = Voronoi(voronoiScaleA * p, voronoiSmoothnessA, voronoiSpeedA);
+          float layer2 = VoronoiF1F2(voronoiScaleB * p, voronoiSmoothnessB, voronoiSpeedB);
+          float layer3 = Voronoi(voronoiScaleC * p, voronoiSmoothnessC, voronoiSpeedC);
+
+          float foam = layer1 * 0.4 + layer2 * 0.4 + layer3 * 0.2;
+          foam = pow(foam, voronoiPower);
+          foam = mix(foam, foam * foamIntensity, waveInfluence * 0.5);
+
+          return clamp(foam, 0.0, 1.0);
+        }
+
+        // Wake pattern calculation
+        float calculateWakeEffect(vec2 worldPos) {
+          // Calculate relative position from wake center
+          vec2 relativePos = worldPos - vec2(wakePositionX, wakePositionZ);
+
+          // Check if we're within the wake bounds
+          float halfWidth = wakeWidth * 0.5;
+          float halfLength = wakeLength * 0.5;
+
+          if(abs(relativePos.x) > halfWidth || abs(relativePos.y) > halfLength) {
+            return 0.0;
+          }
+
+          // Calculate UV coordinates for the wake area
+          vec2 wakeUV = (relativePos + vec2(halfWidth, halfLength)) / vec2(wakeWidth, wakeLength);
+
+          // Create edge fade similar to the original wake shader
+          float edgeFade = 1.0 - 1.8 * max(abs(wakeUV.x - 0.5), abs(wakeUV.y - 0.5));
+          edgeFade = smoothstep(0.1, 0.9, edgeFade);
+
+          // Create wake pattern
+          float wakePattern = 1.0 - abs(wakeUV.x - 0.5) * 2.0;
+          wakePattern = pow(wakePattern, 0.8) * 0.7;
+
+          // Calculate wave influence
+          float waveHeight = WakeWaveHt(vec3(worldPos.x, 0.0, worldPos.y));
+          float waveInfluence = smoothstep(foamThreshold, 1.0, abs(waveHeight));
+
+          // Get enhanced foam
+          float foam = EnhancedFoam(wakeUV * foamScale, waveInfluence);
+          foam = foam * wakePattern * (0.6 + waveInfluence * 0.2);
+
+          // Apply brightness variation
+          float brightness = 0.8 + sin(waveHeight * 2.0) * 0.05;
+
+          return foam * brightness * edgeFade * wakeOpacity;
+        }
+
+        // Original water noise function
         vec4 getNoise(vec2 uv) {
           vec2 uv0 = (uv / 103.0) + vec2(time / 17.0, time / 29.0);
           vec2 uv1 = uv / 107.0 - vec2(time / -19.0, time / 31.0);
@@ -400,18 +567,12 @@ export const useWater = class WaterWaves {
           vec3 scatter = max(0.0, dot(surfaceNormal, eyeDirection)) * waterColor;
           vec3 albedo = mix((sunColor * diffuseLight * 0.3 + scatter) * getShadowMask(), (vec3(0.1) + reflectionSample * 0.9 + reflectionSample * specularLight), reflectance);
 
-          // Calculate static wake/foam effect
-          float wakeEffect = staticWakePattern(vWorldPos.xz);
+          // Calculate enhanced wake effect
+          float wakeEffect = calculateWakeEffect(vWorldPos.xz);
 
-          // Create foam color with slight blue tint
-          vec3 foamColor = vec3(0.95, 0.98, 1.0);
-
-          // Enhanced foam effect with edge highlighting
-          float foamMask = pow(wakeEffect, 0.8);
-          vec3 finalColor = mix(albedo, foamColor, foamMask);
-
-          // Add extra brightness to foam areas
-          finalColor += foamColor * wakeEffect * 0.3;
+          // Apply wake effect to water
+          vec3 finalColor = mix(albedo, voronoiColor, wakeEffect);
+          finalColor += voronoiColor * wakeEffect * 0.3; // Extra brightness
 
           gl_FragColor = vec4(clamp(finalColor, 0.0, 1.0), alpha);
 
@@ -421,75 +582,127 @@ export const useWater = class WaterWaves {
 
       shader.uniforms.size.value = 10.0;
 
-      // Store reference to shader uniforms for updates
+      // Store reference to uniforms for updates
       this.foamUniforms = {
-        staticFoamPoint: shader.uniforms.staticFoamPoint,
-        foamEnabled: shader.uniforms.foamEnabled,
-        foamWidth: shader.uniforms.foamWidth,
-        foamLength: shader.uniforms.foamLength,
+        wakePositionX: shader.uniforms.wakePositionX,
+        wakePositionZ: shader.uniforms.wakePositionZ,
+        wakeWidth: shader.uniforms.wakeWidth,
+        wakeLength: shader.uniforms.wakeLength,
+        wakeOpacity: shader.uniforms.wakeOpacity,
+        voronoiSmoothnessA: shader.uniforms.voronoiSmoothnessA,
+        voronoiSmoothnessB: shader.uniforms.voronoiSmoothnessB,
+        voronoiSmoothnessC: shader.uniforms.voronoiSmoothnessC,
+        voronoiSpeedA: shader.uniforms.voronoiSpeedA,
+        voronoiSpeedB: shader.uniforms.voronoiSpeedB,
+        voronoiSpeedC: shader.uniforms.voronoiSpeedC,
+        voronoiScaleA: shader.uniforms.voronoiScaleA,
+        voronoiScaleB: shader.uniforms.voronoiScaleB,
+        voronoiScaleC: shader.uniforms.voronoiScaleC,
+        voronoiPower: shader.uniforms.voronoiPower,
+        voronoiColor: shader.uniforms.voronoiColor,
+        foamScale: shader.uniforms.foamScale,
+        foamThreshold: shader.uniforms.foamThreshold,
         foamIntensity: shader.uniforms.foamIntensity,
+        wakeWaveFreq: shader.uniforms.wakeWaveFreq,
+        wakeWaveAmp: shader.uniforms.wakeWaveAmp,
+        wakeWaveRoughness: shader.uniforms.wakeWaveRoughness,
+        wakeTimeScale: shader.uniforms.wakeTimeScale,
+        wakeOctaves: shader.uniforms.wakeOctaves,
+        wakePersistance: shader.uniforms.wakePersistance,
+        wakeLacunarity: shader.uniforms.wakeLacunarity,
       };
     };
   }
 
-  // Method to set static foam position and dimensions
-  setStaticFoam(position, width, length) {
-    this.staticFoamPoint.copy(position);
-    this.foamWidth = width;
-    this.foamLength = length;
-
-    if (this.foamUniforms) {
-      this.foamUniforms.staticFoamPoint.value.copy(this.staticFoamPoint);
-      this.foamUniforms.foamWidth.value = this.foamWidth;
-      this.foamUniforms.foamLength.value = this.foamLength;
+  // Add water to scene
+  addToScene() {
+    if (this.water && this.scene) {
+      this.scene.add(this.water);
     }
   }
 
-  // Method to update foam position (useful for moving boats)
-  updateFoamPosition(x, y, z) {
-    this.staticFoamPoint.set(x, y, z);
-    if (this.foamUniforms) {
-      this.foamUniforms.staticFoamPoint.value.copy(this.staticFoamPoint);
+  // Remove water from scene
+  removeFromScene() {
+    if (this.water && this.scene) {
+      this.scene.remove(this.water);
     }
   }
 
-  // Method to update foam dimensions
-  updateFoamDimensions(width, length) {
-    this.foamWidth = width;
-    this.foamLength = length;
+  // Methods to update wake properties
+  updateWakePosition(x, z) {
+    this.wakeProperties.positionX = x;
+    this.wakeProperties.positionZ = z;
     if (this.foamUniforms) {
-      this.foamUniforms.foamWidth.value = width;
-      this.foamUniforms.foamLength.value = length;
+      this.foamUniforms.wakePositionX.value = x;
+      this.foamUniforms.wakePositionZ.value = z;
     }
   }
 
-  // Method to enable/disable foam
-  setFoamEnabled(enabled) {
-    this.foamEnabled = enabled;
+  updateWakeDimensions(width, length) {
+    this.wakeProperties.width = width;
+    this.wakeProperties.length = length;
     if (this.foamUniforms) {
-      this.foamUniforms.foamEnabled.value = enabled ? 1.0 : 0.0;
+      this.foamUniforms.wakeWidth.value = width;
+      this.foamUniforms.wakeLength.value = length;
     }
   }
 
-  // Method to set foam intensity
-  setFoamIntensity(intensity) {
-    this.foamIntensity = intensity;
+  updateWakeOpacity(opacity) {
+    this.wakeProperties.opacity = opacity;
     if (this.foamUniforms) {
-      this.foamUniforms.foamIntensity.value = intensity;
+      this.foamUniforms.wakeOpacity.value = opacity;
     }
   }
 
-  // Method to sync with wake instance
-  syncWithWake() {
-    this.updateFoamFromWake();
+  // Method to update foam parameters (completion)
+  updateFoamParameter(paramName, value) {
+    if (this.foamProperties.hasOwnProperty(paramName)) {
+      this.foamProperties[paramName] = value;
+      if (this.foamUniforms && this.foamUniforms[paramName]) {
+        this.foamUniforms[paramName].value = value;
+      }
+    }
   }
 
-  // Remove mouse event setup methods since we're using static foam
-  cleanup() {
-    // No mouse events to clean up
+  // Method to update wave parameters
+  updateWaveParameter(paramName, value) {
+    if (this.waveProperties.hasOwnProperty(paramName)) {
+      this.waveProperties[paramName] = value;
+      if (
+        this.foamUniforms &&
+        this.foamUniforms[
+          "wake" + paramName.charAt(0).toUpperCase() + paramName.slice(1)
+        ]
+      ) {
+        this.foamUniforms[
+          "wake" + paramName.charAt(0).toUpperCase() + paramName.slice(1)
+        ].value = value;
+      }
+    }
   }
 
+  // Get water mesh for external access
   getWater() {
     return this.water;
+  }
+
+  // Update method for animation loop
+  update() {
+    if (this.water) {
+      this.water.material.uniforms["time"].value += 1.0 / 60.0;
+    }
+  }
+
+  // Cleanup method
+  dispose() {
+    if (this.water) {
+      if (this.water.geometry) {
+        this.water.geometry.dispose();
+      }
+      if (this.water.material) {
+        this.water.material.dispose();
+      }
+      this.removeFromScene();
+    }
   }
 };

@@ -119,14 +119,6 @@ function init() {
     new THREE.Vector3(0, 0, 0)
   );
 
-  wakeEffect = new useWake(
-    scene,
-    modelClass.model,
-    waterClass.getWater(),
-    waves
-  );
-  wakeEffect.init();
-
   const sky = new useSun(scene, renderer, waterClass.getWater());
   sky.updateSun();
 
@@ -188,16 +180,15 @@ function animate() {
     if (cannonDebugRenderer) {
       cannonDebugRenderer.update();
     }
-
-    if (wakeEffect) {
-      wakeEffect.update(delta);
-    }
   }
 
   world.step(delta);
   modelClass.updateModelMesh();
 
-  waterClass.getWater().material.uniforms["time"].value += delta;
+  if (waterClass.getWater()) {
+    waterClass.getWater().material.uniforms["time"].value += delta;
+    waterClass.update();
+  }
   light.position.copy(light.target.position).add(lightShift);
 
   render();
