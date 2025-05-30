@@ -20,8 +20,8 @@ export const useWater = class WaterWaves {
       opacity: 1.0,
     };
 
-    // Wave animation properties from useWake
     this.waveProperties = {
+      textureSpeed: 1.0,
       waveFreq: 0.13,
       waveAmp: 1.0,
       waveRoughness: 8.0,
@@ -31,7 +31,6 @@ export const useWater = class WaterWaves {
       lacunarity: 1.5,
     };
 
-    // Foam shader parameters from useWake
     this.foamProperties = {
       voronoiSmoothnessA: 0.3,
       voronoiSmoothnessB: 0.4,
@@ -141,6 +140,7 @@ export const useWater = class WaterWaves {
       shader.uniforms.wakeWidth = { value: this.wakeProperties.width };
       shader.uniforms.wakeLength = { value: this.wakeProperties.length };
       shader.uniforms.wakeOpacity = { value: this.wakeProperties.opacity };
+      shader.uniforms.textureSpeed = { value: 1.0 };
 
       // Enhanced foam shader uniforms from useWake
       shader.uniforms.voronoiSmoothnessA = {
@@ -302,6 +302,7 @@ export const useWater = class WaterWaves {
         uniform vec3 waterColor;
         uniform float offsetX;
         uniform float offsetZ;
+        uniform float textureSpeed;
 
         // Wake properties
         uniform float wakePositionX;
@@ -516,16 +517,17 @@ export const useWater = class WaterWaves {
 
         // Original water noise function
         vec4 getNoise(vec2 uv) {
-          vec2 uv0 = (uv / 103.0) + vec2(time / 17.0, time / 29.0);
-          vec2 uv1 = uv / 107.0 - vec2(time / -19.0, time / 31.0);
-          vec2 uv2 = uv / vec2(8907.0, 9803.0) + vec2(time / 101.0, time / 97.0);
-          vec2 uv3 = uv / vec2(1091.0, 1027.0) - vec2(time / 109.0, time / -113.0);
-          vec4 noise = texture2D(normalSampler, uv0) +
-              texture2D(normalSampler, uv1) +
-              texture2D(normalSampler, uv2) +
-              texture2D(normalSampler, uv3);
-          return noise * 0.5 - 1.0;
-        }
+        float speedMultiplier = textureSpeed;
+        vec2 uv0 = (uv / 103.0) + vec2(time / 17.0, time / 29.0) * speedMultiplier;
+        vec2 uv1 = uv / 107.0 - vec2(time / -19.0, time / 31.0) * speedMultiplier;
+        vec2 uv2 = uv / vec2(8907.0, 9803.0) + vec2(time / 101.0, time / 97.0) * speedMultiplier;
+        vec2 uv3 = uv / vec2(1091.0, 1027.0) - vec2(time / 109.0, time / -113.0) * speedMultiplier;
+        vec4 noise = texture2D(normalSampler, uv0) +
+            texture2D(normalSampler, uv1) +
+            texture2D(normalSampler, uv2) +
+            texture2D(normalSampler, uv3);
+        return noise * 0.5 - 1.0;
+      }
 
         void sunLight(const vec3 surfaceNormal, const vec3 eyeDirection, float shiny, float spec, float diffuse, inout vec3 diffuseColor, inout vec3 specularColor) {
           vec3 reflection = normalize(reflect(-sunDirection, surfaceNormal));
@@ -610,6 +612,7 @@ export const useWater = class WaterWaves {
         wakeOctaves: shader.uniforms.wakeOctaves,
         wakePersistance: shader.uniforms.wakePersistance,
         wakeLacunarity: shader.uniforms.wakeLacunarity,
+        textureSpeed: shader.uniforms.textureSpeed,
       };
     };
   }
@@ -681,15 +684,42 @@ export const useWater = class WaterWaves {
     }
   }
 
-  // Get water mesh for external access
-  getWater() {
-    return this.water;
-  }
-
   // Update method for animation loop
   update() {
     if (this.water) {
       this.water.material.uniforms["time"].value += 1.0 / 60.0;
+    }
+  }
+  updateTextureSpeed(speed) {
+    this.textureSpeed = speed;
+    if (this.foamUniforms && this.water.material.uniforms.textureSpeed) {
+      this.water.material.uniforms.textureSpeed.value = speed;
+    }
+  }
+
+  // Get water mesh for external access
+  getWater() {
+    return this.water;
+  }
+  getWaveProperties() {
+    return this.waveProperties;
+  }
+
+  getWakeProperties() {
+    return this.wakeProperties;
+  }
+
+  getFoamProperties() {
+    return this.foamProperties;
+  }
+
+  // Method to update wake properties
+  updateWakeProperty(paramName, value) {
+    if (this.wakeProperties.hasOwnProperty(paramName)) {
+      this.wakeProperties[paramName] = value;
+      if (this.foamUniforms && this.foamUniforms[paramName]) {
+        this.foamUniforms[paramName].value = value;
+      }
     }
   }
 
