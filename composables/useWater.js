@@ -21,7 +21,7 @@ export const useWater = class WaterWaves {
     };
 
     this.waveProperties = {
-      textureSpeed: 1.0,
+      textureSpeed: 0.4,
       waveFreq: 0.13,
       waveAmp: 1.0,
       waveRoughness: 8.0,
@@ -140,7 +140,7 @@ export const useWater = class WaterWaves {
       shader.uniforms.wakeWidth = { value: this.wakeProperties.width };
       shader.uniforms.wakeLength = { value: this.wakeProperties.length };
       shader.uniforms.wakeOpacity = { value: this.wakeProperties.opacity };
-      shader.uniforms.textureSpeed = { value: 1.0 };
+      shader.uniforms.textureSpeed = { value: 0.3 };
 
       // Enhanced foam shader uniforms from useWake
       shader.uniforms.voronoiSmoothnessA = {
@@ -667,19 +667,18 @@ export const useWater = class WaterWaves {
     }
   }
 
-  // Method to update wave parameters
   updateWaveParameter(paramName, value) {
     if (this.waveProperties.hasOwnProperty(paramName)) {
       this.waveProperties[paramName] = value;
-      if (
-        this.foamUniforms &&
-        this.foamUniforms[
-          "wake" + paramName.charAt(0).toUpperCase() + paramName.slice(1)
-        ]
-      ) {
-        this.foamUniforms[
-          "wake" + paramName.charAt(0).toUpperCase() + paramName.slice(1)
-        ].value = value;
+
+      // Map to the correct uniform name
+      const uniformName =
+        paramName === "textureSpeed"
+          ? "textureSpeed"
+          : "wake" + paramName.charAt(0).toUpperCase() + paramName.slice(1);
+
+      if (this.foamUniforms && this.foamUniforms[uniformName]) {
+        this.foamUniforms[uniformName].value = value;
       }
     }
   }
@@ -713,13 +712,26 @@ export const useWater = class WaterWaves {
     return this.foamProperties;
   }
 
-  // Method to update wake properties
-  updateWakeProperty(paramName, value) {
-    if (this.wakeProperties.hasOwnProperty(paramName)) {
-      this.wakeProperties[paramName] = value;
-      if (this.foamUniforms && this.foamUniforms[paramName]) {
-        this.foamUniforms[paramName].value = value;
-      }
+  updateWakeProperty(uniformName, value) {
+    // Update the local property
+    const propertyMap = {
+      wakeWidth: "width",
+      wakeLength: "length",
+      wakePositionX: "positionX",
+      wakePositionZ: "positionZ",
+      wakeOpacity: "opacity",
+      heightOffset: "heightOffset",
+      positionY: "positionY",
+    };
+
+    const localProperty = propertyMap[uniformName] || uniformName;
+    if (this.wakeProperties.hasOwnProperty(localProperty)) {
+      this.wakeProperties[localProperty] = value;
+    }
+
+    // Update the shader uniform
+    if (this.foamUniforms && this.foamUniforms[uniformName]) {
+      this.foamUniforms[uniformName].value = value;
     }
   }
 
