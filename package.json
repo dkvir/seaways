@@ -30,7 +30,7 @@
     "nuxt-icons": "^3.2.1",
     "pinia": "^2.3.1",
     "rxjs": "^7.8.2",
-    "three": "^0.154.0",
+    "three": "^0.177.0",
     "ts-keycode-enum": "^1.0.6",
     "vue": "^3.4.27",
     "vue-router": "^4.3.2"

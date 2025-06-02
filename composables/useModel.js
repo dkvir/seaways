@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import * as CANNON from "cannon-es";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader";
+import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader";
 
 export const useModel = class Model {
   constructor(scene, renderer, world, water, waves) {
@@ -17,12 +18,35 @@ export const useModel = class Model {
     this.bodyToMeshOffsetX = 7;
     this.bodyToMeshOffsetY = -10;
     this.bodyToMeshOffsetZ = 10;
+
+    // Initialize DRACO loader
+    this.setupLoaders();
+  }
+
+  setupLoaders() {
+    // Create DRACO loader
+    this.dracoLoader = new DRACOLoader();
+
+    // Set the path to DRACO decoder files
+    // Option 1: Use CDN (recommended for web deployment)
+    this.dracoLoader.setDecoderPath(
+      "https://www.gstatic.com/draco/versioned/decoders/1.5.6/"
+    );
+
+    // Option 2: Use local files (uncomment if you have local DRACO files)
+    // this.dracoLoader.setDecoderPath('/draco/');
+
+    // Enable pre-loading of WASM decoder (optional, improves performance)
+    this.dracoLoader.preload();
+
+    // Create GLTF loader and set DRACO loader as extension
+    this.gltfLoader = new GLTFLoader();
+    this.gltfLoader.setDRACOLoader(this.dracoLoader);
   }
 
   loadGLBModel(modelPath, position, scale, rotation) {
-    const loader = new GLTFLoader();
-
-    loader.load(
+    // Use the configured GLTF loader with DRACO support
+    this.gltfLoader.load(
       modelPath,
       (gltf) => {
         this.model = gltf.scene;
@@ -53,27 +77,152 @@ export const useModel = class Model {
         });
 
         this.scene.add(this.model);
-        // console.log("Model loaded successfully:", modelPath);
 
         this.createModelPhysics(position);
 
-        this.mixer = new THREE.AnimationMixer(this.model);
+        if (this.animations && this.animations.length > 0) {
+          this.mixer = new THREE.AnimationMixer(this.model);
 
-        // Play the first animation in the list (you can change the index if needed)
-        const action = this.mixer.clipAction(this.animations[0]);
-        action.loop = THREE.LoopRepeat; // loop mode
-        action.clampWhenFinished = false;
-        action.enable = true;
-        action.play();
+          // Play the first animation in the list (you can change the index if needed)
+          const action = this.mixer.clipAction(this.animations[0]);
+          action.loop = THREE.LoopRepeat; // loop mode
+          action.clampWhenFinished = false;
+          action.enable = true;
+          action.play();
+        }
       },
       (xhr) => {
-        // console.log((xhr.loaded / xhr.total) * 100 + "% loaded");
+        if (xhr.lengthComputable) {
+          const percentComplete = (xhr.loaded / xhr.total) * 100;
+          // console.log(`Loading: ${Math.round(percentComplete)}%`);
+        }
       },
       (error) => {
-        console.error("An error occurred loading the model:", error);
+        console.error("An error occurred loading the DRACO model:", error);
       }
     );
   }
+
+  // Method to load models with custom DRACO settings
+  loadGLBModelWithDracoConfig(
+    modelPath,
+    position,
+    scale,
+    rotation,
+    dracoConfig = {}
+  ) {
+    // Create a new DRACO loader with custom configuration
+    const customDracoLoader = new DRACOLoader();
+
+    // Apply custom DRACO configuration
+    const config = {
+      decoderPath: "https://www.gstatic.com/draco/versioned/decoders/1.5.6/",
+      workerLimit: 4, // Number of web workers to use
+      ...dracoConfig,
+    };
+
+    customDracoLoader.setDecoderPath(config.decoderPath);
+
+    if (config.workerLimit) {
+      customDracoLoader.setWorkerLimit(config.workerLimit);
+    }
+
+    // Create GLTF loader with custom DRACO loader
+    const customGltfLoader = new GLTFLoader();
+    customGltfLoader.setDRACOLoader(customDracoLoader);
+
+    customGltfLoader.load(
+      modelPath,
+      (gltf) => {
+        // Same loading logic as above
+        this.model = gltf.scene;
+        this.animations = gltf.animations;
+
+        if (scale) {
+          this.model.scale.set(scale.x, scale.y, scale.z);
+        }
+
+        if (position) {
+          this.model.position.set(position.x, position.y, position.z);
+        }
+
+        if (rotation) {
+          this.model.rotation.set(rotation.x, rotation.y, rotation.z);
+        }
+
+        this.model.traverse((child) => {
+          if (child.isMesh) {
+            child.castShadow = true;
+            child.receiveShadow = true;
+            child.frustumCulled = false;
+            child.material.depthWrite = true;
+            child.material.flatShading = false;
+            child.material.transparent = false;
+            this.modelMesh = child;
+          }
+        });
+
+        this.scene.add(this.model);
+        console.log("Custom DRACO model loaded successfully:", modelPath);
+
+        this.createModelPhysics(position);
+
+        if (this.animations && this.animations.length > 0) {
+          this.mixer = new THREE.AnimationMixer(this.model);
+          const action = this.mixer.clipAction(this.animations[0]);
+          action.loop = THREE.LoopRepeat;
+          action.clampWhenFinished = false;
+          action.enable = true;
+          action.play();
+        }
+
+        // Clean up custom loader
+        customDracoLoader.dispose();
+      },
+      (xhr) => {
+        if (xhr.lengthComputable) {
+          const percentComplete = (xhr.loaded / xhr.total) * 100;
+          console.log(`Loading custom DRACO: ${Math.round(percentComplete)}%`);
+        }
+      },
+      (error) => {
+        console.error(
+          "An error occurred loading the custom DRACO model:",
+          error
+        );
+        customDracoLoader.dispose();
+      }
+    );
+  }
+
+  // Clean up method to dispose of loaders
+  dispose() {
+    if (this.dracoLoader) {
+      this.dracoLoader.dispose();
+    }
+
+    if (this.mixer) {
+      this.mixer.stopAllAction();
+      this.mixer = null;
+    }
+
+    if (this.model) {
+      this.scene.remove(this.model);
+      this.model.traverse((child) => {
+        if (child.isMesh) {
+          if (child.geometry) child.geometry.dispose();
+          if (child.material) {
+            if (Array.isArray(child.material)) {
+              child.material.forEach((material) => material.dispose());
+            } else {
+              child.material.dispose();
+            }
+          }
+        }
+      });
+    }
+  }
+
   createModelPhysics(position) {
     const hullWidth = 70;
     const hullHeight = 50;
@@ -202,6 +351,7 @@ export const useModel = class Model {
       ),
     ];
   }
+
   applyBuoyancyForce() {
     if (!this.modelBody || !this.water) return;
 
@@ -285,6 +435,7 @@ export const useModel = class Model {
       }
     }
   }
+
   updateModelMesh() {
     if (this.modelBody && this.model) {
       this.model.position.set(

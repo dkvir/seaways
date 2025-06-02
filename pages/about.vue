@@ -28,12 +28,12 @@ const waves = [
   {
     direction: 306,
     steepness: 0.2,
-    wavelength: 32,
+    wavelength: 59,
   },
   {
     direction: 176,
     steepness: 0.2,
-    wavelength: 59,
+    wavelength: 109,
   },
 ];
 
@@ -100,7 +100,7 @@ function init() {
     waves
   );
   modelClass.loadGLBModel(
-    "/mesh/boat.glb",
+    "/mesh/output.glb",
     new THREE.Vector3(0, 2, 0),
     new THREE.Vector3(1, 1, 1),
     new THREE.Vector3(0, 0, 0)
